@@ -3,6 +3,7 @@
 
 mod detection;
 pub mod docker;
+pub mod podman;
 pub mod traits;
 mod types;
 
