@@ -2,6 +2,7 @@
 // ABOUTME: Auto-detects available runtime, defines composable capability traits.
 
 mod detection;
+pub mod docker;
 pub mod traits;
 mod types;
 

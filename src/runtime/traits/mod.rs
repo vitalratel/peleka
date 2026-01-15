@@ -7,7 +7,7 @@ mod image;
 mod logs;
 mod network;
 mod runtime_info;
-mod sealed;
+pub(crate) mod sealed;
 mod shared_types;
 
 pub use container::{ContainerError, ContainerFilters, ContainerOps, ContainerSummary};

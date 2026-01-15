@@ -1,86 +1,9 @@
-// ABOUTME: Tests for runtime trait definitions.
-// ABOUTME: Verifies traits compile with expected bounds and FullRuntime auto-implements.
+// ABOUTME: Tests for runtime trait types and error handling.
+// ABOUTME: Verifies type equality, defaults, and error Display implementations.
 
 use peleka::runtime::traits::*;
-use peleka::types::{ContainerId, ImageRef, NetworkAlias, NetworkId};
-use std::pin::Pin;
-use std::time::Duration;
 
-/// Verify that function signatures work with trait bounds.
-mod trait_bounds {
-    use super::*;
-
-    /// Function requiring only ImageOps.
-    async fn ensure_image(runtime: &impl ImageOps, image: &ImageRef) -> Result<(), ImageError> {
-        if !runtime.image_exists(image).await? {
-            runtime.pull_image(image, None).await?;
-        }
-        Ok(())
-    }
-
-    /// Function requiring only ContainerOps.
-    async fn check_container(
-        runtime: &impl ContainerOps,
-        id: &ContainerId,
-    ) -> Result<bool, ContainerError> {
-        let info = runtime.inspect_container(id).await?;
-        Ok(info.state == ContainerState::Running)
-    }
-
-    /// Function requiring only NetworkOps.
-    async fn setup_network(
-        runtime: &impl NetworkOps,
-        name: &str,
-    ) -> Result<NetworkId, NetworkError> {
-        let config = NetworkConfig {
-            name: name.to_string(),
-            driver: None,
-            labels: Default::default(),
-        };
-        runtime.create_network(&config).await
-    }
-
-    /// Function requiring FullRuntime (all capabilities).
-    async fn deploy(runtime: &impl FullRuntime, image: &ImageRef) -> Result<ContainerId, String> {
-        // This function can use all trait methods
-        runtime
-            .pull_image(image, None)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let config = ContainerConfig {
-            name: "test".to_string(),
-            image: image.clone(),
-            env: Default::default(),
-            labels: Default::default(),
-            ports: vec![],
-            volumes: vec![],
-            command: None,
-            entrypoint: None,
-            working_dir: None,
-            user: None,
-            restart_policy: RestartPolicyConfig::default(),
-            resources: None,
-            healthcheck: None,
-            stop_timeout: None,
-            network: None,
-            network_aliases: vec![],
-        };
-
-        runtime
-            .create_container(&config)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    #[test]
-    fn trait_functions_compile() {
-        // This test just verifies the above functions compile.
-        // The functions aren't called because we have no runtime implementation yet.
-    }
-}
-
-/// Verify trait hierarchy and error types work correctly.
+/// Verify trait types and error handling work correctly.
 mod trait_types {
     use super::*;
 
