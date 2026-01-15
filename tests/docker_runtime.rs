@@ -1,6 +1,8 @@
 // ABOUTME: Integration tests for Docker runtime implementation.
 // ABOUTME: Tests run against real Docker/Podman daemon via SSH tunnel.
 
+mod support;
+
 use futures::StreamExt;
 use peleka::runtime::{
     ContainerConfig, ContainerFilters, ContainerOps, ExecConfig, ExecOps, ImageOps, LogOps,
@@ -9,46 +11,33 @@ use peleka::runtime::{
 use peleka::ssh::{Session, SessionConfig};
 use peleka::types::ImageRef;
 use std::collections::HashMap;
-use std::env;
 use std::time::Duration;
 
-/// Get test SSH configuration from environment.
-fn test_config() -> Option<SessionConfig> {
-    let host = env::var("SSH_TEST_HOST").ok()?;
-    let user = env::var("SSH_TEST_USER").ok().or_else(whoami)?;
-    let port: u16 = env::var("SSH_TEST_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(22);
-    let key_path = env::var("SSH_KEY").ok();
-    let tofu = env::var("SSH_TEST_TOFU").is_ok();
-
-    let mut config = SessionConfig::new(host, user)
-        .port(port)
-        .trust_on_first_use(tofu);
-    if let Some(path) = key_path {
-        config = config.key_path(path);
-    }
-    Some(config)
+/// Get SSH config for the shared DinD test container.
+async fn dind_session_config() -> SessionConfig {
+    support::dind_container::shared_dind_container()
+        .await
+        .session_config()
 }
 
-fn whoami() -> Option<String> {
-    env::var("USER").ok()
+/// Get SSH config for the shared Podman test container.
+async fn podman_session_config() -> SessionConfig {
+    support::podman_container::shared_podman_container()
+        .await
+        .session_config()
 }
 
 /// Test: Create Docker runtime via SSH tunnel and get info.
-/// Requires user to be in docker group.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_runtime_info() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
     // Create Docker runtime connected via SSH tunnel
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -68,17 +57,15 @@ async fn docker_runtime_info() {
 }
 
 /// Test: Ping Docker daemon via SSH tunnel.
-/// Requires user to be in docker group.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_runtime_ping() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -94,16 +81,15 @@ async fn docker_runtime_ping() {
 /// Test: Create Podman runtime via SSH tunnel and get info.
 /// Uses rootless Podman socket which doesn't require special permissions.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
 async fn podman_runtime_info() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = podman_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
     // Create Podman runtime connected via SSH tunnel
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -125,15 +111,14 @@ async fn podman_runtime_info() {
 
 /// Test: Ping Podman daemon via SSH tunnel.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
 async fn podman_runtime_ping() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = podman_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -152,15 +137,14 @@ async fn podman_runtime_ping() {
 
 /// Test: Pull a public image succeeds.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_pull_public_image() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -188,15 +172,14 @@ async fn docker_pull_public_image() {
 
 /// Test: Check if image exists returns false for non-existent image.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_image_exists_false_for_nonexistent() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -222,15 +205,14 @@ async fn docker_image_exists_false_for_nonexistent() {
 
 /// Test: Full container lifecycle (create, start, stop, remove).
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_container_lifecycle() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -334,15 +316,14 @@ async fn docker_container_lifecycle() {
 
 /// Test: Rename container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_rename_container() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -414,15 +395,14 @@ async fn docker_rename_container() {
 
 /// Test: Create network, connect container, verify alias, disconnect, remove.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_network_operations() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -542,15 +522,14 @@ async fn docker_network_operations() {
 
 /// Test: Execute command in running container and get output.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_exec_command() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -671,15 +650,14 @@ async fn docker_exec_command() {
 
 /// Test: Stream logs from a container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker and docker group membership"]
 async fn docker_log_streaming() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 

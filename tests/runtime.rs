@@ -1,39 +1,29 @@
 // ABOUTME: Integration tests for runtime detection.
 // ABOUTME: Tests run against real servers with Docker/Podman installed.
 
+mod support;
+
 use peleka::runtime::{RuntimeType, detect_runtime};
 use peleka::ssh::{Session, SessionConfig};
-use std::env;
 
-/// Get test SSH configuration from environment.
-fn test_config() -> Option<SessionConfig> {
-    let host = env::var("SSH_TEST_HOST").ok()?;
-    let user = env::var("SSH_TEST_USER").ok().or_else(whoami)?;
-    let port: u16 = env::var("SSH_TEST_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(22);
-    let key_path = env::var("SSH_KEY").ok();
-    let tofu = env::var("SSH_TEST_TOFU").is_ok();
-
-    let mut config = SessionConfig::new(host, user)
-        .port(port)
-        .trust_on_first_use(tofu);
-    if let Some(path) = key_path {
-        config = config.key_path(path);
-    }
-    Some(config)
+/// Get SSH config for the shared DinD test container.
+async fn dind_session_config() -> SessionConfig {
+    support::dind_container::shared_dind_container()
+        .await
+        .session_config()
 }
 
-fn whoami() -> Option<String> {
-    env::var("USER").ok()
+/// Get SSH config for the shared Podman test container.
+async fn podman_session_config() -> SessionConfig {
+    support::podman_container::shared_podman_container()
+        .await
+        .session_config()
 }
 
 /// Test: Detects Podman on server with Podman installed.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
 async fn detects_podman_on_podman_server() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = podman_session_config().await;
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
@@ -61,9 +51,8 @@ async fn detects_podman_on_podman_server() {
 
 /// Test: Config override takes precedence over auto-detection.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST"]
 async fn config_override_takes_precedence() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
@@ -91,10 +80,10 @@ async fn config_override_takes_precedence() {
 }
 
 /// Test: Prefers Podman when both runtimes are available.
+/// Note: With our Podman container, only Podman is present, so this verifies Podman is detected.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with both Podman and Docker"]
 async fn prefers_podman_when_both_present() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = podman_session_config().await;
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
@@ -118,9 +107,8 @@ async fn prefers_podman_when_both_present() {
 
 /// Test: Can detect Docker when forced via config override.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker"]
 async fn detects_docker_with_override() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");

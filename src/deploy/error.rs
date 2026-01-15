@@ -30,6 +30,10 @@ pub enum DeployError {
     #[error("network operation failed: {0}")]
     NetworkFailed(String),
 
+    /// Network creation failed.
+    #[error("failed to create network: {0}")]
+    NetworkCreationFailed(String),
+
     /// Health check failed.
     #[error("health check failed: {0}")]
     HealthCheckFailed(String),

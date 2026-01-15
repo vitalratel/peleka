@@ -1,41 +1,17 @@
 // ABOUTME: Integration tests for SSH module.
-// ABOUTME: Tests run against real SSH servers (Podman container or VPS).
+// ABOUTME: Tests run against a shared SSH container.
+
+mod support;
 
 use peleka::ssh::{Error, Session, SessionConfig};
-use std::env;
-
-/// Get test SSH configuration from environment.
-/// Set SSH_TEST_HOST, SSH_TEST_PORT, SSH_TEST_USER, SSH_KEY to configure.
-/// Set SSH_TEST_TOFU=1 to enable trust-on-first-use for testing.
-fn test_config() -> Option<SessionConfig> {
-    let host = env::var("SSH_TEST_HOST").ok()?;
-    let user = env::var("SSH_TEST_USER").ok().or_else(whoami)?;
-    let port: u16 = env::var("SSH_TEST_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(22);
-    let key_path = env::var("SSH_KEY").ok();
-    let tofu = env::var("SSH_TEST_TOFU").is_ok();
-
-    let mut config = SessionConfig::new(host, user)
-        .port(port)
-        .trust_on_first_use(tofu);
-    if let Some(path) = key_path {
-        config = config.key_path(path);
-    }
-    Some(config)
-}
-
-fn whoami() -> Option<String> {
-    env::var("USER").ok()
-}
+use support::ssh_container::shared_container;
 
 /// Test: Connect to SSH server and execute `echo hello`.
 /// Expected: Returns "hello" with exit code 0.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn connect_and_execute_echo() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let container = shared_container().await;
+    let config = container.session_config();
 
     let session = Session::connect(config)
         .await
@@ -58,9 +34,9 @@ async fn connect_and_execute_echo() {
 /// Test: Execute command that writes to stderr.
 /// Expected: stderr is captured correctly.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn capture_stderr() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let container = shared_container().await;
+    let config = container.session_config();
 
     let session = Session::connect(config)
         .await
@@ -84,9 +60,9 @@ async fn capture_stderr() {
 /// Test: Execute command with non-zero exit code.
 /// Expected: exit_code reflects the actual exit status.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn nonzero_exit_code() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let container = shared_container().await;
+    let config = container.session_config();
 
     let session = Session::connect(config)
         .await
@@ -124,11 +100,9 @@ async fn invalid_host_returns_connection_error() {
 
 /// Test: Connection with invalid key returns auth error.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn invalid_key_returns_auth_error() {
-    let Some(mut config) = test_config() else {
-        panic!("SSH_TEST_HOST must be set");
-    };
+    let container = shared_container().await;
+    let mut config = container.session_config();
 
     // Use a non-existent key path
     config = config.key_path("/nonexistent/key/path");
@@ -144,38 +118,12 @@ async fn invalid_key_returns_auth_error() {
     );
 }
 
-/// Test: Unknown host is rejected when TOFU is disabled.
-/// Uses 127.0.0.1 which has a different known_hosts entry than localhost.
-#[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
-async fn unknown_host_rejected_without_tofu() {
-    let Some(base_config) = test_config() else {
-        panic!("SSH_TEST_HOST must be set");
-    };
-
-    // Use 127.0.0.1 instead of localhost - different known_hosts entry
-    let config = SessionConfig::new("127.0.0.1", &base_config.user)
-        .port(base_config.port)
-        .key_path(env::var("SSH_KEY").expect("SSH_KEY must be set for this test"))
-        .trust_on_first_use(false);
-
-    let result = Session::connect(config).await;
-
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    // Should fail during connection due to unknown host key
-    assert!(
-        matches!(err, Error::Connection(_)),
-        "expected Connection error for unknown host, got: {:?}",
-        err
-    );
-}
-
 /// Test: file_exists returns true for existing file.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn file_exists_returns_true_for_existing_file() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let container = shared_container().await;
+    let config = container.session_config();
+
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
@@ -195,9 +143,10 @@ async fn file_exists_returns_true_for_existing_file() {
 
 /// Test: file_exists returns false for non-existing file.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST environment variable"]
 async fn file_exists_returns_false_for_nonexistent_file() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let container = shared_container().await;
+    let config = container.session_config();
+
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");

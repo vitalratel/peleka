@@ -47,8 +47,7 @@ labels:
   traefik.enable: "true"
 
 healthcheck:
-  path: /health
-  port: 3000
+  cmd: "curl -f http://localhost:3000/health"
   interval: 10s
   timeout: 5s
   retries: 3
@@ -67,7 +66,10 @@ stop:
             config.env.get("RAILS_ENV"),
             Some(&EnvValue::Literal("production".to_string()))
         );
-        assert_eq!(config.healthcheck.as_ref().unwrap().path, "/health");
+        assert_eq!(
+            config.healthcheck.as_ref().unwrap().cmd,
+            "curl -f http://localhost:3000/health"
+        );
         assert_eq!(config.restart, RestartPolicy::UnlessStopped);
     }
 
@@ -374,37 +376,39 @@ image: nginx
 servers:
   - host: example.com
 healthcheck:
-  path: /health
-  port: 8080
+  cmd: "curl -f http://localhost:8080/health"
 "#;
         let config = Config::from_yaml(yaml).unwrap();
         let hc = config.healthcheck.unwrap();
-        assert_eq!(hc.path, "/health");
-        assert_eq!(hc.port, 8080);
+        assert_eq!(hc.cmd, "curl -f http://localhost:8080/health");
         // Check defaults
         assert_eq!(hc.interval, Duration::from_secs(10));
         assert_eq!(hc.timeout, Duration::from_secs(5));
         assert_eq!(hc.retries, 3);
-        assert_eq!(hc.expected_status, 200);
+        assert_eq!(hc.start_period, Duration::from_secs(30));
     }
 
     #[test]
-    fn parse_healthcheck_with_expected_status() {
+    fn parse_healthcheck_with_custom_timing() {
         let yaml = r#"
 service: myapp
 image: nginx
 servers:
   - host: example.com
 healthcheck:
-  path: /ready
-  port: 3000
-  expected_status: 204
+  cmd: "nc -z localhost 3000"
+  interval: 5s
+  timeout: 2s
+  retries: 5
+  start_period: 10s
 "#;
         let config = Config::from_yaml(yaml).unwrap();
         let hc = config.healthcheck.unwrap();
-        assert_eq!(hc.path, "/ready");
-        assert_eq!(hc.port, 3000);
-        assert_eq!(hc.expected_status, 204);
+        assert_eq!(hc.cmd, "nc -z localhost 3000");
+        assert_eq!(hc.interval, Duration::from_secs(5));
+        assert_eq!(hc.timeout, Duration::from_secs(2));
+        assert_eq!(hc.retries, 5);
+        assert_eq!(hc.start_period, Duration::from_secs(10));
     }
 }
 

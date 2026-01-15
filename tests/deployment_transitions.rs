@@ -1,6 +1,8 @@
 // ABOUTME: Tests for deployment state transitions.
 // ABOUTME: Verifies transition methods exist and return correct state types.
 
+mod support;
+
 use peleka::deploy::{
     Completed, ContainerStarted, CutOver, Deployment, HealthChecked, ImagePulled, Initialized,
 };
@@ -89,47 +91,28 @@ fn rollback_from_health_checked_compiles() {
 // =============================================================================
 
 use peleka::ssh::{Session, SessionConfig};
-use std::env;
 
-/// Get test SSH configuration from environment.
-fn test_config() -> Option<SessionConfig> {
-    let host = env::var("SSH_TEST_HOST").ok()?;
-    let user = env::var("SSH_TEST_USER").ok().or_else(whoami)?;
-    let port: u16 = env::var("SSH_TEST_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(22);
-    let key_path = env::var("SSH_KEY").ok();
-    let tofu = env::var("SSH_TEST_TOFU").is_ok();
-
-    let mut config = SessionConfig::new(host, user)
-        .port(port)
-        .trust_on_first_use(tofu);
-    if let Some(path) = key_path {
-        config = config.key_path(path);
-    }
-    Some(config)
-}
-
-fn whoami() -> Option<String> {
-    env::var("USER").ok()
+/// Get SSH config for the shared DinD test container.
+async fn dind_session_config() -> SessionConfig {
+    support::dind_container::shared_dind_container()
+        .await
+        .session_config()
 }
 
 /// Test: Full deployment chain works end-to-end.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker"]
 async fn full_deployment_chain() {
     use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::{NetworkConfig, NetworkOps, RuntimeType};
 
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -183,19 +166,18 @@ async fn full_deployment_chain() {
 
 /// Test: Container start failure cleans up created container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker"]
 async fn container_start_failure_cleans_up() {
     use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::RuntimeType;
 
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -229,19 +211,18 @@ async fn container_start_failure_cleans_up() {
 
 /// Test: Rollback from ContainerStarted removes new container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Docker"]
 async fn rollback_from_container_started_removes_container() {
     use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::{ContainerFilters, ContainerOps, RuntimeType};
 
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let config = dind_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::docker::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 

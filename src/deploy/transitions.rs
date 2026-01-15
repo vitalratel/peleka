@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::runtime::{
-    ContainerConfig, ContainerOps, HealthState, ImageOps, NetworkOps, RegistryAuth,
-    RestartPolicyConfig, VolumeMount,
+    ContainerConfig, ContainerOps, HealthState, ImageOps, NetworkConfig as RuntimeNetworkConfig,
+    NetworkOps, RegistryAuth, RestartPolicyConfig, VolumeMount,
 };
 use crate::types::{ContainerId, NetworkAlias, NetworkId};
 
@@ -96,6 +96,49 @@ impl<S> Deployment<S> {
 // =============================================================================
 
 impl Deployment<Initialized> {
+    /// Ensure the deployment network exists, creating it if necessary.
+    ///
+    /// # Returns
+    ///
+    /// Returns the `NetworkId` for use in cutover.
+    ///
+    /// # Errors
+    ///
+    /// Returns `DeployError::NetworkCreationFailed` if the network cannot be created.
+    pub async fn ensure_network<R: NetworkOps>(
+        &self,
+        runtime: &R,
+    ) -> Result<NetworkId, DeployError> {
+        use crate::runtime::NetworkError;
+
+        let network_name = self.network_name();
+
+        // Check if network already exists
+        if runtime.network_exists(&network_name).await.unwrap_or(false) {
+            // Network exists, return name as ID (Docker/Podman accept both)
+            return Ok(NetworkId::new(network_name));
+        }
+
+        // Try to create the network
+        let config = RuntimeNetworkConfig {
+            name: network_name.clone(),
+            driver: Some("bridge".to_string()),
+            labels: std::collections::HashMap::new(),
+        };
+
+        match runtime.create_network(&config).await {
+            Ok(_) => {
+                // Return name as ID for consistency
+                Ok(NetworkId::new(network_name))
+            }
+            Err(NetworkError::AlreadyExists(_)) => {
+                // Race condition: network was created between check and create
+                Ok(NetworkId::new(network_name))
+            }
+            Err(e) => Err(DeployError::NetworkCreationFailed(e.to_string())),
+        }
+    }
+
     /// Pull the container image from the registry.
     ///
     /// # Errors
@@ -148,6 +191,13 @@ impl Deployment<ImagePulled> {
             self.config.service.to_string(),
         );
         labels.insert("peleka.managed".to_string(), "true".to_string());
+        // Track blue/green state for zero-downtime deployment
+        let state = if self.old_container.is_some() {
+            "green"
+        } else {
+            "blue"
+        };
+        labels.insert("peleka.state".to_string(), state.to_string());
 
         // Parse volumes from config
         let volumes: Vec<VolumeMount> = self
@@ -180,19 +230,14 @@ impl Deployment<ImagePulled> {
             crate::config::RestartPolicy::UnlessStopped => RestartPolicyConfig::UnlessStopped,
             crate::config::RestartPolicy::OnFailure { max_retries } => {
                 RestartPolicyConfig::OnFailure {
-                    max_retries: max_retries.clone(),
+                    max_retries: *max_retries,
                 }
             }
         };
 
-        // Convert healthcheck config - translate HTTP check to curl command
+        // Convert healthcheck config - use user-provided command directly
         let healthcheck = self.config.healthcheck.as_ref().map(|hc| {
-            // Check for specific expected HTTP status code
-            let curl_cmd = format!(
-                "test $(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{}{}) -eq {}",
-                hc.port, hc.path, hc.expected_status
-            );
-            let test = vec!["CMD-SHELL".to_string(), curl_cmd];
+            let test = vec!["CMD-SHELL".to_string(), hc.cmd.clone()];
             crate::runtime::HealthcheckConfig {
                 test,
                 interval: hc.interval,
@@ -371,6 +416,9 @@ impl Deployment<HealthChecked> {
 impl Deployment<CutOver> {
     /// Clean up the old container (if any).
     ///
+    /// Waits for the configured grace period to allow in-flight requests
+    /// to complete before stopping the old container.
+    ///
     /// # Errors
     ///
     /// Returns error if cleanup fails.
@@ -380,15 +428,29 @@ impl Deployment<CutOver> {
         runtime: &R,
     ) -> Result<Deployment<Completed>, DeployError> {
         if let Some(old_container_id) = &self.old_container {
+            // Wait for grace period to allow in-flight requests to complete
+            let grace_period = self
+                .config
+                .cleanup
+                .as_ref()
+                .map(|c| c.grace_period)
+                .unwrap_or_else(|| Duration::from_secs(30));
+
+            if !grace_period.is_zero() {
+                tokio::time::sleep(grace_period).await;
+            }
+
             // Stop with configured timeout or default
-            let timeout = self
+            let stop_timeout = self
                 .config
                 .stop
                 .as_ref()
                 .map(|s| s.timeout)
                 .unwrap_or_else(|| Duration::from_secs(30));
 
-            runtime.stop_container(old_container_id, timeout).await?;
+            runtime
+                .stop_container(old_container_id, stop_timeout)
+                .await?;
             runtime.remove_container(old_container_id, false).await?;
         }
 

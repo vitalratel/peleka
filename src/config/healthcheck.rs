@@ -1,13 +1,36 @@
 // ABOUTME: Container health check configuration.
-// ABOUTME: Defines HTTP health check parameters with sensible defaults.
+// ABOUTME: User-defined health check command with timing parameters.
 
 use serde::Deserialize;
 use std::time::Duration;
 
+/// Health check configuration.
+///
+/// The `cmd` field is a shell command that runs inside the container.
+/// Exit code 0 = healthy, non-zero = unhealthy.
+///
+/// # Examples
+///
+/// ```yaml
+/// healthcheck:
+///   cmd: "curl -f http://localhost:3000/health"
+///   interval: 10s
+///   timeout: 5s
+///   retries: 3
+/// ```
+///
+/// Common patterns:
+/// - HTTP with curl: `curl -f http://localhost:3000/health`
+/// - HTTP with wget: `wget -q --spider http://localhost:80/health`
+/// - TCP check: `nc -z localhost 3000`
+/// - Custom binary: `/app/healthcheck`
+/// - PostgreSQL: `pg_isready -U postgres`
+/// - Redis: `redis-cli ping`
 #[derive(Debug, Clone, Deserialize)]
 pub struct HealthcheckConfig {
-    pub path: String,
-    pub port: u16,
+    /// Shell command to run inside the container.
+    /// Exit code 0 = healthy, non-zero = unhealthy.
+    pub cmd: String,
 
     #[serde(default = "default_interval", with = "humantime_serde")]
     pub interval: Duration,
@@ -20,9 +43,6 @@ pub struct HealthcheckConfig {
 
     #[serde(default = "default_start_period", with = "humantime_serde")]
     pub start_period: Duration,
-
-    #[serde(default = "default_expected_status")]
-    pub expected_status: u16,
 }
 
 fn default_interval() -> Duration {
@@ -39,8 +59,4 @@ fn default_retries() -> u32 {
 
 fn default_start_period() -> Duration {
     Duration::from_secs(30)
-}
-
-fn default_expected_status() -> u16 {
-    200
 }

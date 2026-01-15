@@ -1,13 +1,13 @@
 // ABOUTME: Container runtime detection and trait abstractions.
 // ABOUTME: Auto-detects available runtime, defines composable capability traits.
 
+mod bollard;
 mod detection;
-pub mod docker;
-pub mod podman;
 pub mod traits;
 mod types;
 
-pub use detection::{DetectionError, detect_runtime};
+pub use bollard::{BollardRuntime, connect_via_session};
+pub use detection::{DetectionError, detect_local, detect_runtime};
 pub use types::{RuntimeConfig, RuntimeInfo, RuntimeType};
 
 // Re-export traits at runtime level for convenience

@@ -1,155 +1,88 @@
-// ABOUTME: Integration tests for Podman runtime implementation.
-// ABOUTME: Tests run against real Podman daemon via SSH tunnel.
+// ABOUTME: Integration tests for container runtime operations.
+// ABOUTME: Tests run against local Docker/Podman daemon without SSH.
 
 use futures::StreamExt;
-use peleka::runtime::podman::PodmanRuntime;
 use peleka::runtime::{
-    ContainerConfig, ContainerFilters, ContainerOps, ExecConfig, ExecOps, ImageOps, LogOps,
-    LogOptions, NetworkConfig, NetworkOps, RestartPolicyConfig, RuntimeInfoTrait,
+    BollardRuntime, ContainerConfig, ContainerFilters, ContainerOps, ExecConfig, ExecOps, ImageOps,
+    LogOps, LogOptions, NetworkConfig, NetworkOps, RestartPolicyConfig, RuntimeInfoTrait,
+    detect_local,
 };
-use peleka::ssh::{Session, SessionConfig};
 use peleka::types::ImageRef;
 use std::collections::HashMap;
-use std::env;
 use std::time::Duration;
 
-/// Get test SSH configuration from environment.
-fn test_config() -> Option<SessionConfig> {
-    let host = env::var("SSH_TEST_HOST").ok()?;
-    let user = env::var("SSH_TEST_USER").ok().or_else(whoami)?;
-    let port: u16 = env::var("SSH_TEST_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(22);
-    let key_path = env::var("SSH_KEY").ok();
-    let tofu = env::var("SSH_TEST_TOFU").is_ok();
-
-    let mut config = SessionConfig::new(host, user)
-        .port(port)
-        .trust_on_first_use(tofu);
-    if let Some(path) = key_path {
-        config = config.key_path(path);
-    }
-    Some(config)
+/// Get local runtime, skipping test if unavailable.
+fn local_runtime() -> Option<BollardRuntime> {
+    let info = detect_local().ok()?;
+    BollardRuntime::connect(&info).ok()
 }
 
-fn whoami() -> Option<String> {
-    env::var("USER").ok()
+/// Skip test if no local runtime available.
+macro_rules! require_runtime {
+    () => {
+        match local_runtime() {
+            Some(rt) => rt,
+            None => {
+                eprintln!("Skipping test: no local container runtime found");
+                return;
+            }
+        }
+    };
 }
 
 // =============================================================================
 // RuntimeInfo Tests
 // =============================================================================
 
-/// Test: Create Podman runtime via SSH tunnel and get info.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_runtime_info() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn runtime_info() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    // Create Podman runtime connected via SSH tunnel
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Get runtime info
     let info = runtime.info().await.expect("should get runtime info");
 
-    // Podman returns "podman" in name
     assert!(
-        info.name.to_lowercase().contains("podman"),
-        "runtime name should contain 'podman', got: {}",
+        !info.name.is_empty(),
+        "runtime name should not be empty, got: {}",
         info.name
     );
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
+    assert!(
+        !info.version.is_empty(),
+        "runtime version should not be empty"
+    );
 }
 
-/// Test: Ping Podman daemon via SSH tunnel.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_runtime_ping() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
-
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ping should succeed
+async fn runtime_ping() {
+    let runtime = require_runtime!();
     runtime.ping().await.expect("ping should succeed");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
 // =============================================================================
 // ImageOps Tests
 // =============================================================================
 
-/// Test: Pull a public image succeeds.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_pull_public_image() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn pull_public_image() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
 
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Use a small public image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
-
-    // Pull the image (no auth needed for public image)
     runtime
         .pull_image(&image_ref, None)
         .await
         .expect("pull should succeed");
 
-    // Verify image exists
     let exists = runtime
         .image_exists(&image_ref)
         .await
         .expect("image_exists should succeed");
     assert!(exists, "image should exist after pull");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
-/// Test: Check if image exists returns false for non-existent image.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_image_exists_false_for_nonexistent() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn image_exists_false_for_nonexistent() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Use a non-existent image
     let image_ref = ImageRef::parse("this-image-definitely-does-not-exist-12345:v999")
         .expect("valid image ref");
 
@@ -158,33 +91,18 @@ async fn podman_image_exists_false_for_nonexistent() {
         .await
         .expect("image_exists should succeed");
     assert!(!exists, "non-existent image should return false");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
 // =============================================================================
 // ContainerOps Tests
 // =============================================================================
 
-/// Test: Full container lifecycle (create, start, stop, remove).
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_container_lifecycle() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
-
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
+async fn container_lifecycle() {
+    let runtime = require_runtime!();
 
     // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -192,8 +110,7 @@ async fn podman_container_lifecycle() {
             .expect("pull should succeed");
     }
 
-    // Create container config
-    let container_name = format!("peleka-podman-test-{}", std::process::id());
+    let container_name = format!("peleka-test-{}", std::process::id());
     let config = ContainerConfig {
         name: container_name.clone(),
         image: image_ref,
@@ -236,7 +153,7 @@ async fn podman_container_lifecycle() {
         .expect("inspect_container should succeed");
     assert_eq!(
         info.state,
-        peleka::runtime::traits::ContainerState::Running,
+        peleka::runtime::ContainerState::Running,
         "container should be running"
     );
 
@@ -274,29 +191,13 @@ async fn podman_container_lifecycle() {
     // Verify container is gone
     let result = runtime.inspect_container(&container_id).await;
     assert!(result.is_err(), "container should not exist after removal");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
-/// Test: Rename container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_rename_container() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn rename_container() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -304,8 +205,8 @@ async fn podman_rename_container() {
             .expect("pull should succeed");
     }
 
-    let original_name = format!("peleka-podman-rename-test-{}", std::process::id());
-    let new_name = format!("peleka-podman-renamed-{}", std::process::id());
+    let original_name = format!("peleka-rename-test-{}", std::process::id());
+    let new_name = format!("peleka-renamed-{}", std::process::id());
 
     let config = ContainerConfig {
         name: original_name.clone(),
@@ -326,19 +227,16 @@ async fn podman_rename_container() {
         network_aliases: vec![],
     };
 
-    // Create container
     let container_id = runtime
         .create_container(&config)
         .await
         .expect("create_container should succeed");
 
-    // Rename container
     runtime
         .rename_container(&container_id, &new_name)
         .await
         .expect("rename_container should succeed");
 
-    // Verify new name
     let info = runtime
         .inspect_container(&container_id)
         .await
@@ -350,33 +248,17 @@ async fn podman_rename_container() {
         .remove_container(&container_id, true)
         .await
         .expect("cleanup should succeed");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
 // =============================================================================
 // NetworkOps Tests
 // =============================================================================
 
-/// Test: Create network, connect container, verify alias, disconnect, remove.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_network_operations() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn network_operations() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -384,8 +266,8 @@ async fn podman_network_operations() {
             .expect("pull should succeed");
     }
 
-    let network_name = format!("peleka-podman-net-test-{}", std::process::id());
-    let container_name = format!("peleka-podman-net-container-{}", std::process::id());
+    let network_name = format!("peleka-net-test-{}", std::process::id());
+    let container_name = format!("peleka-net-container-{}", std::process::id());
 
     // Create network
     let network_config = NetworkConfig {
@@ -398,14 +280,13 @@ async fn podman_network_operations() {
         .await
         .expect("create_network should succeed");
 
-    // Verify network exists
     let exists = runtime
         .network_exists(&network_name)
         .await
         .expect("network_exists should succeed");
     assert!(exists, "network should exist after creation");
 
-    // Create a container
+    // Create and start a container
     let container_config = ContainerConfig {
         name: container_name.clone(),
         image: image_ref,
@@ -429,7 +310,6 @@ async fn podman_network_operations() {
         .await
         .expect("create_container should succeed");
 
-    // Start container
     runtime
         .start_container(&container_id)
         .await
@@ -442,7 +322,6 @@ async fn podman_network_operations() {
         .await
         .expect("connect_to_network should succeed");
 
-    // Inspect container to verify network connection
     let info = runtime
         .inspect_container(&container_id)
         .await
@@ -462,7 +341,7 @@ async fn podman_network_operations() {
     runtime
         .stop_container(&container_id, Duration::from_secs(5))
         .await
-        .ok(); // Ignore errors
+        .ok();
     runtime
         .remove_container(&container_id, true)
         .await
@@ -472,39 +351,22 @@ async fn podman_network_operations() {
         .await
         .expect("remove_network should succeed");
 
-    // Verify network is gone
     let exists = runtime
         .network_exists(&network_name)
         .await
         .expect("network_exists should succeed");
     assert!(!exists, "network should not exist after removal");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
 // =============================================================================
 // ExecOps Tests
 // =============================================================================
 
-/// Test: Execute command in running container and get output.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_exec_command() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn exec_command() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -512,9 +374,8 @@ async fn podman_exec_command() {
             .expect("pull should succeed");
     }
 
-    let container_name = format!("peleka-podman-exec-test-{}", std::process::id());
+    let container_name = format!("peleka-exec-test-{}", std::process::id());
 
-    // Create and start a container
     let container_config = ContainerConfig {
         name: container_name.clone(),
         image: image_ref,
@@ -561,7 +422,6 @@ async fn podman_exec_command() {
         .await
         .expect("exec should succeed");
 
-    // Check output
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         stdout.contains("hello world"),
@@ -607,33 +467,17 @@ async fn podman_exec_command() {
         .remove_container(&container_id, true)
         .await
         .expect("cleanup should succeed");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
 
 // =============================================================================
 // LogOps Tests
 // =============================================================================
 
-/// Test: Stream logs from a container.
 #[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_log_streaming() {
-    let config = test_config().expect("SSH_TEST_HOST must be set");
+async fn log_streaming() {
+    let runtime = require_runtime!();
 
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -641,9 +485,8 @@ async fn podman_log_streaming() {
             .expect("pull should succeed");
     }
 
-    let container_name = format!("peleka-podman-log-test-{}", std::process::id());
+    let container_name = format!("peleka-log-test-{}", std::process::id());
 
-    // Create container that outputs some logs
     let container_config = ContainerConfig {
         name: container_name.clone(),
         image: image_ref,
@@ -676,10 +519,9 @@ async fn podman_log_streaming() {
         .await
         .expect("start_container should succeed");
 
-    // Wait a moment for logs to be generated
+    // Wait for logs to be generated
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Get logs
     let log_opts = LogOptions {
         stdout: true,
         stderr: true,
@@ -695,7 +537,6 @@ async fn podman_log_streaming() {
         .await
         .expect("container_logs should succeed");
 
-    // Collect log lines
     let mut log_content = String::new();
     while let Some(result) = log_stream.next().await {
         match result {
@@ -704,7 +545,6 @@ async fn podman_log_streaming() {
         }
     }
 
-    // Verify we got our log lines
     assert!(
         log_content.contains("log line 1"),
         "logs should contain 'log line 1', got: {}",
@@ -728,89 +568,4 @@ async fn podman_log_streaming() {
         .remove_container(&container_id, true)
         .await
         .expect("cleanup should succeed");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
-}
-
-// =============================================================================
-// PodmanExt Tests
-// =============================================================================
-
-/// Test: Generate quadlet unit file for a container.
-#[tokio::test]
-#[ignore = "requires SSH_TEST_HOST with Podman"]
-async fn podman_generate_quadlet() {
-    use peleka::runtime::podman::PodmanExt;
-
-    let config = test_config().expect("SSH_TEST_HOST must be set");
-
-    let mut session = Session::connect(config)
-        .await
-        .expect("connection should succeed");
-
-    let runtime = PodmanRuntime::connect_via_session(&mut session)
-        .await
-        .expect("should create Podman runtime");
-
-    // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("docker.io/library/alpine:latest").expect("valid image ref");
-    if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
-        runtime
-            .pull_image(&image_ref, None)
-            .await
-            .expect("pull should succeed");
-    }
-
-    let container_name = format!("peleka-podman-quadlet-test-{}", std::process::id());
-
-    // Create a container
-    let container_config = ContainerConfig {
-        name: container_name.clone(),
-        image: image_ref,
-        env: HashMap::new(),
-        labels: HashMap::new(),
-        ports: vec![],
-        volumes: vec![],
-        command: Some(vec!["sleep".to_string(), "30".to_string()]),
-        entrypoint: None,
-        working_dir: None,
-        user: None,
-        restart_policy: RestartPolicyConfig::No,
-        resources: None,
-        healthcheck: None,
-        stop_timeout: None,
-        network: None,
-        network_aliases: vec![],
-    };
-    let container_id = runtime
-        .create_container(&container_config)
-        .await
-        .expect("create_container should succeed");
-
-    // Generate quadlet unit
-    let quadlet = runtime
-        .generate_quadlet(&container_id)
-        .await
-        .expect("generate_quadlet should succeed");
-
-    // Verify it looks like a valid systemd unit
-    assert!(
-        quadlet.content.contains("[Container]") || quadlet.content.contains("[Unit]"),
-        "quadlet should contain unit sections, got: {}",
-        quadlet.content
-    );
-
-    // Cleanup
-    runtime
-        .remove_container(&container_id, true)
-        .await
-        .expect("cleanup should succeed");
-
-    session
-        .disconnect()
-        .await
-        .expect("disconnect should succeed");
 }
