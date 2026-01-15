@@ -23,6 +23,141 @@ use futures::{Stream, StreamExt};
 use std::pin::Pin;
 use std::time::Duration;
 
+// =============================================================================
+// Error Mapping Helpers
+// =============================================================================
+
+fn map_image_remove_error(e: docker_api::Error, image_name: &str) -> ImageError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => ImageError::NotFound(message),
+        _ => ImageError::Runtime(format!("failed to remove {}: {}", image_name, e)),
+    }
+}
+
+fn map_container_create_error(e: docker_api::Error) -> ContainerError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::ImageNotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 409 => {
+            ContainerError::AlreadyExists(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_start_error(e: docker_api::Error) -> ContainerError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 304 => {
+            ContainerError::AlreadyRunning(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_stop_error(e: docker_api::Error) -> ContainerError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 304 => {
+            ContainerError::NotRunning(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_not_found_error(e: docker_api::Error) -> ContainerError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_rename_error(e: docker_api::Error) -> ContainerError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 409 => {
+            ContainerError::AlreadyExists(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_create_error(e: docker_api::Error) -> NetworkError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 409 => {
+            NetworkError::AlreadyExists(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_remove_error(e: docker_api::Error) -> NetworkError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 403 => {
+            NetworkError::InUse(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_connect_error(e: docker_api::Error) -> NetworkError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_disconnect_error(e: docker_api::Error) -> NetworkError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 403 => {
+            NetworkError::NotConnected(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_exec_create_error(e: docker_api::Error) -> ExecError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ExecError::ContainerNotFound(message)
+        }
+        docker_api::Error::Fault { code, message } if code == 409 => {
+            ExecError::ContainerNotRunning(message)
+        }
+        _ => ExecError::Runtime(e.to_string()),
+    }
+}
+
+fn map_exec_not_found_error(e: docker_api::Error) -> ExecError {
+    match e {
+        docker_api::Error::Fault { code, message } if code == 404 => {
+            ExecError::ExecNotFound(message)
+        }
+        _ => ExecError::Runtime(e.to_string()),
+    }
+}
+
+// =============================================================================
+// DockerRuntime
+// =============================================================================
+
 /// Docker runtime implementation.
 pub struct DockerRuntime {
     client: Docker,
@@ -154,12 +289,7 @@ impl ImageOps for DockerRuntime {
             .get(&image_name)
             .remove(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ImageError::NotFound(image_name.clone())
-                }
-                _ => ImageError::Runtime(format!("failed to remove {}: {}", image_name, e)),
-            })?;
+            .map_err(|e| map_image_remove_error(e, &image_name))?;
 
         Ok(())
     }
@@ -270,15 +400,7 @@ impl ContainerOps for DockerRuntime {
             .containers()
             .create(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, message } if code == 404 => {
-                    ContainerError::ImageNotFound(message)
-                }
-                docker_api::Error::Fault { code, message } if code == 409 => {
-                    ContainerError::AlreadyExists(message)
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_container_create_error)?;
 
         Ok(ContainerId::new(container.id().to_string()))
     }
@@ -289,15 +411,7 @@ impl ContainerOps for DockerRuntime {
             .get(id.as_str())
             .start()
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                docker_api::Error::Fault { code, .. } if code == 304 => {
-                    ContainerError::AlreadyRunning(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_start_error)
     }
 
     async fn stop_container(
@@ -312,35 +426,20 @@ impl ContainerOps for DockerRuntime {
             .get(id.as_str())
             .stop(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                docker_api::Error::Fault { code, .. } if code == 304 => {
-                    ContainerError::NotRunning(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_stop_error)
     }
 
     async fn remove_container(&self, id: &ContainerId, force: bool) -> Result<(), ContainerError> {
         let opts = ContainerRemoveOpts::builder().force(force).build();
 
-        match self
-            .client
+        self.client
             .containers()
             .get(id.as_str())
             .remove(&opts)
             .await
-        {
-            Ok(_) => Ok(()),
-            Err(e) => Err(match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            }),
-        }
+            .map_err(map_container_not_found_error)?;
+
+        Ok(())
     }
 
     async fn inspect_container(&self, id: &ContainerId) -> Result<ContainerInfo, ContainerError> {
@@ -350,12 +449,7 @@ impl ContainerOps for DockerRuntime {
             .get(id.as_str())
             .inspect()
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_container_not_found_error)?;
 
         // Parse state
         let state = details
@@ -482,15 +576,7 @@ impl ContainerOps for DockerRuntime {
             .get(id.as_str())
             .rename(new_name)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                docker_api::Error::Fault { code, message } if code == 409 => {
-                    ContainerError::AlreadyExists(message)
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_rename_error)
     }
 }
 
@@ -514,12 +600,7 @@ impl NetworkOps for DockerRuntime {
             .networks()
             .create(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, message } if code == 409 => {
-                    NetworkError::AlreadyExists(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_network_create_error)?;
 
         Ok(NetworkId::new(network.id().to_string()))
     }
@@ -530,15 +611,7 @@ impl NetworkOps for DockerRuntime {
             .get(id.as_str())
             .delete()
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    NetworkError::NotFound(id.to_string())
-                }
-                docker_api::Error::Fault { code, message } if code == 403 => {
-                    NetworkError::InUse(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })
+            .map_err(map_network_remove_error)
     }
 
     async fn connect_to_network(
@@ -562,16 +635,7 @@ impl NetworkOps for DockerRuntime {
             .get(network.as_str())
             .connect(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    // Could be network or container not found
-                    NetworkError::NotFound(format!(
-                        "network {} or container {}",
-                        network, container
-                    ))
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })
+            .map_err(map_network_connect_error)
     }
 
     async fn disconnect_from_network(
@@ -586,15 +650,7 @@ impl NetworkOps for DockerRuntime {
             .get(network.as_str())
             .disconnect(&opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    NetworkError::NotFound(network.to_string())
-                }
-                docker_api::Error::Fault { code, message } if code == 403 => {
-                    NetworkError::NotConnected(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })
+            .map_err(map_network_disconnect_error)
     }
 
     async fn network_exists(&self, name: &str) -> Result<bool, NetworkError> {
@@ -646,15 +702,7 @@ impl ExecOps for DockerRuntime {
             .get(container.as_str())
             .exec(&opts, &ExecStartOpts::default())
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ExecError::ContainerNotFound(container.to_string())
-                }
-                docker_api::Error::Fault { code, .. } if code == 409 => {
-                    ExecError::ContainerNotRunning(container.to_string())
-                }
-                _ => ExecError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_exec_create_error)?;
 
         // Collect output from multiplexer
         let mut stdout = Vec::new();
@@ -714,15 +762,7 @@ impl ExecOps for DockerRuntime {
 
         let exec = docker_api::Exec::create(self.client.clone(), container.as_str(), &opts)
             .await
-            .map_err(|e| match e {
-                docker_api::Error::Fault { code, .. } if code == 404 => {
-                    ExecError::ContainerNotFound(container.to_string())
-                }
-                docker_api::Error::Fault { code, .. } if code == 409 => {
-                    ExecError::ContainerNotRunning(container.to_string())
-                }
-                _ => ExecError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_exec_create_error)?;
 
         // Get the exec ID via inspect since Exec::id() is private
         let details = exec
@@ -737,12 +777,7 @@ impl ExecOps for DockerRuntime {
         let exec = docker_api::Exec::get(self.client.clone(), exec_id);
         let opts = ExecStartOpts::default();
 
-        let mut multiplexer = exec.start(&opts).await.map_err(|e| match e {
-            docker_api::Error::Fault { code, .. } if code == 404 => {
-                ExecError::ExecNotFound(exec_id.to_string())
-            }
-            _ => ExecError::Runtime(e.to_string()),
-        })?;
+        let mut multiplexer = exec.start(&opts).await.map_err(map_exec_not_found_error)?;
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -773,12 +808,7 @@ impl ExecOps for DockerRuntime {
 
     async fn exec_inspect(&self, exec_id: &str) -> Result<ExecInfo, ExecError> {
         let exec = docker_api::Exec::get(self.client.clone(), exec_id);
-        let details = exec.inspect().await.map_err(|e| match e {
-            docker_api::Error::Fault { code, .. } if code == 404 => {
-                ExecError::ExecNotFound(exec_id.to_string())
-            }
-            _ => ExecError::Runtime(e.to_string()),
-        })?;
+        let details = exec.inspect().await.map_err(map_exec_not_found_error)?;
 
         Ok(ExecInfo {
             id: exec_id.to_string(),

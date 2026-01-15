@@ -1,0 +1,9 @@
+error[E0599]: no method named `rollback` found for struct `Deployment<Completed>` in the current scope
+  --> tests/compile_fail/invalid_transition_rollback_on_completed.rs:11:16
+   |
+11 |     deployment.rollback(runtime).await;
+   |                ^^^^^^^^ method not found in `Deployment<Completed>`
+   |
+   = note: the method was found for
+           - `Deployment<ContainerStarted>`
+           - `Deployment<HealthChecked>`

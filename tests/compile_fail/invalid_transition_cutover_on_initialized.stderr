@@ -1,0 +1,8 @@
+error[E0599]: no method named `cutover` found for struct `Deployment<Initialized>` in the current scope
+  --> tests/compile_fail/invalid_transition_cutover_on_initialized.rs:16:16
+   |
+16 |     deployment.cutover(runtime, &network_id).await;
+   |                ^^^^^^^ method not found in `Deployment<Initialized>`
+   |
+   = note: the method was found for
+           - `Deployment<HealthChecked>`

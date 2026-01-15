@@ -15,10 +15,10 @@ use super::state::Initialized;
 /// enforcement of valid state transitions.
 #[derive(Debug)]
 pub struct Deployment<S> {
-    config: Config,
-    new_container: Option<ContainerId>,
-    old_container: Option<ContainerId>,
-    _state: PhantomData<S>,
+    pub(crate) config: Config,
+    pub(crate) new_container: Option<ContainerId>,
+    pub(crate) old_container: Option<ContainerId>,
+    pub(crate) _state: PhantomData<S>,
 }
 
 impl Deployment<Initialized> {

@@ -23,6 +23,141 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
 
+// =============================================================================
+// Error Mapping Helpers
+// =============================================================================
+
+fn map_image_remove_error(e: podman_api::Error, image_name: &str) -> ImageError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => ImageError::NotFound(message),
+        _ => ImageError::Runtime(format!("failed to remove {}: {}", image_name, e)),
+    }
+}
+
+fn map_container_create_error(e: podman_api::Error) -> ContainerError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::ImageNotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 409 => {
+            ContainerError::AlreadyExists(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_start_error(e: podman_api::Error) -> ContainerError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 304 => {
+            ContainerError::AlreadyRunning(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_stop_error(e: podman_api::Error) -> ContainerError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 304 => {
+            ContainerError::NotRunning(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_not_found_error(e: podman_api::Error) -> ContainerError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_container_rename_error(e: podman_api::Error) -> ContainerError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ContainerError::NotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 409 => {
+            ContainerError::AlreadyExists(message)
+        }
+        _ => ContainerError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_create_error(e: podman_api::Error) -> NetworkError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 409 => {
+            NetworkError::AlreadyExists(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_remove_error(e: podman_api::Error) -> NetworkError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 403 => {
+            NetworkError::InUse(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_connect_error(e: podman_api::Error) -> NetworkError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_network_disconnect_error(e: podman_api::Error) -> NetworkError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            NetworkError::NotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 403 => {
+            NetworkError::NotConnected(message)
+        }
+        _ => NetworkError::Runtime(e.to_string()),
+    }
+}
+
+fn map_exec_create_error(e: podman_api::Error) -> ExecError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ExecError::ContainerNotFound(message)
+        }
+        podman_api::Error::Fault { code, message } if code == 409 => {
+            ExecError::ContainerNotRunning(message)
+        }
+        _ => ExecError::Runtime(e.to_string()),
+    }
+}
+
+fn map_exec_not_found_error(e: podman_api::Error) -> ExecError {
+    match e {
+        podman_api::Error::Fault { code, message } if code == 404 => {
+            ExecError::ExecNotFound(message)
+        }
+        _ => ExecError::Runtime(e.to_string()),
+    }
+}
+
+// =============================================================================
+// PodmanRuntime
+// =============================================================================
+
 /// Podman runtime implementation.
 pub struct PodmanRuntime {
     client: Podman,
@@ -158,12 +293,7 @@ impl ImageOps for PodmanRuntime {
             self.client.images().get(&image_name).delete().await
         };
 
-        result.map_err(|e| match e {
-            podman_api::Error::Fault { code, .. } if code == 404 => {
-                ImageError::NotFound(image_name.clone())
-            }
-            _ => ImageError::Runtime(format!("failed to remove {}: {}", image_name, e)),
-        })?;
+        result.map_err(|e| map_image_remove_error(e, &image_name))?;
 
         Ok(())
     }
@@ -298,15 +428,7 @@ impl ContainerOps for PodmanRuntime {
             .containers()
             .create(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, message } if code == 404 => {
-                    ContainerError::ImageNotFound(message)
-                }
-                podman_api::Error::Fault { code, message } if code == 409 => {
-                    ContainerError::AlreadyExists(message)
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_container_create_error)?;
 
         Ok(ContainerId::new(container.id))
     }
@@ -317,15 +439,7 @@ impl ContainerOps for PodmanRuntime {
             .get(id.as_str())
             .start(None)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                podman_api::Error::Fault { code, .. } if code == 304 => {
-                    ContainerError::AlreadyRunning(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_start_error)
     }
 
     async fn stop_container(
@@ -342,15 +456,7 @@ impl ContainerOps for PodmanRuntime {
             .get(id.as_str())
             .stop(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                podman_api::Error::Fault { code, .. } if code == 304 => {
-                    ContainerError::NotRunning(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_stop_error)
     }
 
     async fn remove_container(&self, id: &ContainerId, force: bool) -> Result<(), ContainerError> {
@@ -365,15 +471,7 @@ impl ContainerOps for PodmanRuntime {
                 .await
         };
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(e) => Err(match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            }),
-        }
+        result.map_err(map_container_not_found_error)
     }
 
     async fn inspect_container(&self, id: &ContainerId) -> Result<ContainerInfo, ContainerError> {
@@ -383,12 +481,7 @@ impl ContainerOps for PodmanRuntime {
             .get(id.as_str())
             .inspect()
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_container_not_found_error)?;
 
         // Parse state
         let state = details
@@ -524,15 +617,7 @@ impl ContainerOps for PodmanRuntime {
             .get(id.as_str())
             .rename(new_name)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(id.to_string())
-                }
-                podman_api::Error::Fault { code, message } if code == 409 => {
-                    ContainerError::AlreadyExists(message)
-                }
-                _ => ContainerError::Runtime(e.to_string()),
-            })
+            .map_err(map_container_rename_error)
     }
 }
 
@@ -563,12 +648,7 @@ impl NetworkOps for PodmanRuntime {
             .networks()
             .create(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, message } if code == 409 => {
-                    NetworkError::AlreadyExists(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_network_create_error)?;
 
         // Podman returns the network name as ID in the response
         Ok(NetworkId::new(
@@ -582,15 +662,7 @@ impl NetworkOps for PodmanRuntime {
             .get(id.as_str())
             .delete()
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    NetworkError::NotFound(id.to_string())
-                }
-                podman_api::Error::Fault { code, message } if code == 403 => {
-                    NetworkError::InUse(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_network_remove_error)?;
         Ok(())
     }
 
@@ -615,16 +687,7 @@ impl NetworkOps for PodmanRuntime {
             .get(network.as_str())
             .connect_container(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    // Could be network or container not found
-                    NetworkError::NotFound(format!(
-                        "network {} or container {}",
-                        network, container
-                    ))
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })
+            .map_err(map_network_connect_error)
     }
 
     async fn disconnect_from_network(
@@ -641,15 +704,7 @@ impl NetworkOps for PodmanRuntime {
             .get(network.as_str())
             .disconnect_container(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    NetworkError::NotFound(network.to_string())
-                }
-                podman_api::Error::Fault { code, message } if code == 403 => {
-                    NetworkError::NotConnected(message)
-                }
-                _ => NetworkError::Runtime(e.to_string()),
-            })
+            .map_err(map_network_disconnect_error)
     }
 
     async fn network_exists(&self, name: &str) -> Result<bool, NetworkError> {
@@ -715,15 +770,7 @@ impl ExecOps for PodmanRuntime {
             .get(container.as_str())
             .create_exec(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ExecError::ContainerNotFound(container.to_string())
-                }
-                podman_api::Error::Fault { code, .. } if code == 409 => {
-                    ExecError::ContainerNotRunning(container.to_string())
-                }
-                _ => ExecError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_exec_create_error)?;
 
         // Get exec ID from response
         let exec_id = exec.id().to_string();
@@ -816,15 +863,7 @@ impl ExecOps for PodmanRuntime {
             .get(container.as_str())
             .create_exec(&opts)
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ExecError::ContainerNotFound(container.to_string())
-                }
-                podman_api::Error::Fault { code, .. } if code == 409 => {
-                    ExecError::ContainerNotRunning(container.to_string())
-                }
-                _ => ExecError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_exec_create_error)?;
 
         Ok(exec.id().to_string())
     }
@@ -833,12 +872,10 @@ impl ExecOps for PodmanRuntime {
         let start_opts = ExecStartOpts::builder().build();
 
         let exec_handle = self.client.execs().get(exec_id);
-        let multiplexer = exec_handle.start(&start_opts).await.map_err(|e| match e {
-            podman_api::Error::Fault { code, .. } if code == 404 => {
-                ExecError::ExecNotFound(exec_id.to_string())
-            }
-            _ => ExecError::Runtime(e.to_string()),
-        })?;
+        let multiplexer = exec_handle
+            .start(&start_opts)
+            .await
+            .map_err(map_exec_not_found_error)?;
 
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -876,12 +913,7 @@ impl ExecOps for PodmanRuntime {
             .get(exec_id)
             .inspect()
             .await
-            .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ExecError::ExecNotFound(exec_id.to_string())
-                }
-                _ => ExecError::Runtime(e.to_string()),
-            })?;
+            .map_err(map_exec_not_found_error)?;
 
         // The inspect result is a JSON Value, so we need to extract fields carefully
         let running = details
@@ -1008,8 +1040,8 @@ impl PodmanExt for PodmanRuntime {
             .generate_systemd_units(&opts)
             .await
             .map_err(|e| match e {
-                podman_api::Error::Fault { code, .. } if code == 404 => {
-                    ContainerError::NotFound(container.to_string())
+                podman_api::Error::Fault { code, message } if code == 404 => {
+                    ContainerError::NotFound(message)
                 }
                 _ => ContainerError::Runtime(e.to_string()),
             })?;

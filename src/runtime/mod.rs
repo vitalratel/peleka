@@ -12,9 +12,10 @@ pub use types::{RuntimeConfig, RuntimeInfo, RuntimeType};
 
 // Re-export traits at runtime level for convenience
 pub use traits::{
-    ContainerConfig, ContainerError, ContainerFilters, ContainerInfo, ContainerOps,
-    ContainerSummary, ExecConfig, ExecError, ExecOps, ExecResult, FullRuntime, HealthcheckConfig,
-    ImageError, ImageOps, LogError, LogLine, LogOps, LogOptions, LogStream, NetworkConfig,
-    NetworkError, NetworkOps, PortMapping, RegistryAuth, ResourceLimits, RestartPolicyConfig,
-    RuntimeInfo as RuntimeInfoTrait, RuntimeInfoError, RuntimeMetadata, VolumeMount,
+    ContainerConfig, ContainerError, ContainerFilters, ContainerInfo, ContainerOps, ContainerState,
+    ContainerSummary, ExecConfig, ExecError, ExecOps, ExecResult, FullRuntime, HealthState,
+    HealthcheckConfig, ImageError, ImageOps, LogError, LogLine, LogOps, LogOptions, LogStream,
+    NetworkConfig, NetworkError, NetworkOps, PortMapping, Protocol, RegistryAuth, ResourceLimits,
+    RestartPolicyConfig, RuntimeInfo as RuntimeInfoTrait, RuntimeInfoError, RuntimeMetadata,
+    VolumeMount,
 };
