@@ -53,7 +53,10 @@ async fn detects_podman_on_podman_server() {
         runtime.socket_path
     );
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: Config override takes precedence over auto-detection.
@@ -81,7 +84,10 @@ async fn config_override_takes_precedence() {
     );
     assert_eq!(runtime.socket_path, "/var/run/docker.sock");
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: Prefers Podman when both runtimes are available.
@@ -104,7 +110,10 @@ async fn prefers_podman_when_both_present() {
         runtime.runtime_type
     );
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: Can detect Docker when forced via config override.
@@ -132,7 +141,10 @@ async fn detects_docker_with_override() {
     );
     assert_eq!(runtime.socket_path, "/var/run/docker.sock");
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: RuntimeType serialization/deserialization.

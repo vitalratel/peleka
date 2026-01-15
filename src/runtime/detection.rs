@@ -27,16 +27,17 @@ pub async fn detect_runtime(
     config: Option<&RuntimeConfig>,
 ) -> Result<RuntimeInfo, DetectionError> {
     // Check for explicit override
-    if let Some(cfg) = config {
-        if let Some(runtime_type) = cfg.runtime {
-            let socket_path = cfg.socket.clone().unwrap_or_else(|| {
-                default_socket_path(runtime_type)
-            });
-            return Ok(RuntimeInfo {
-                runtime_type,
-                socket_path,
-            });
-        }
+    if let Some(cfg) = config
+        && let Some(runtime_type) = cfg.runtime
+    {
+        let socket_path = cfg
+            .socket
+            .clone()
+            .unwrap_or_else(|| default_socket_path(runtime_type));
+        return Ok(RuntimeInfo {
+            runtime_type,
+            socket_path,
+        });
     }
 
     // Auto-detect: check sockets in order

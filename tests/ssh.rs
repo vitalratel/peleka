@@ -187,7 +187,10 @@ async fn file_exists_returns_true_for_existing_file() {
 
     assert!(exists, "/etc/passwd should exist");
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: file_exists returns false for non-existing file.
@@ -206,5 +209,8 @@ async fn file_exists_returns_false_for_nonexistent_file() {
 
     assert!(!exists, "nonexistent path should not exist");
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }

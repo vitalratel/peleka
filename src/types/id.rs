@@ -3,9 +3,13 @@
 
 use std::marker::PhantomData;
 
+#[derive(Debug, Clone)]
 pub struct ContainerMarker;
+#[derive(Debug, Clone)]
 pub struct NetworkMarker;
+#[derive(Debug, Clone)]
 pub struct ImageMarker;
+#[derive(Debug, Clone)]
 pub struct PodMarker;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -1,8 +1,18 @@
-// ABOUTME: Container runtime detection for Docker and Podman.
-// ABOUTME: Auto-detects available runtime or uses explicit config.
+// ABOUTME: Container runtime detection and trait abstractions.
+// ABOUTME: Auto-detects available runtime, defines composable capability traits.
 
 mod detection;
+pub mod traits;
 mod types;
 
-pub use detection::detect_runtime;
+pub use detection::{DetectionError, detect_runtime};
 pub use types::{RuntimeConfig, RuntimeInfo, RuntimeType};
+
+// Re-export traits at runtime level for convenience
+pub use traits::{
+    ContainerConfig, ContainerError, ContainerFilters, ContainerInfo, ContainerOps,
+    ContainerSummary, ExecConfig, ExecError, ExecOps, ExecResult, FullRuntime, HealthcheckConfig,
+    ImageError, ImageOps, LogError, LogLine, LogOps, LogOptions, LogStream, NetworkConfig,
+    NetworkError, NetworkOps, PortMapping, RegistryAuth, ResourceLimits, RestartPolicyConfig,
+    RuntimeInfo as RuntimeInfoTrait, RuntimeInfoError, RuntimeMetadata, VolumeMount,
+};

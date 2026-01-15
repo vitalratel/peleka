@@ -272,7 +272,9 @@ impl Session {
 
     /// Check if a file or socket exists on the remote host.
     pub async fn file_exists(&self, path: &str) -> Result<bool> {
-        let output = self.exec(&format!("test -e {} && echo exists", path)).await?;
+        let output = self
+            .exec(&format!("test -e {} && echo exists", path))
+            .await?;
         Ok(output.success() && output.stdout.trim() == "exists")
     }
 
