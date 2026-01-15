@@ -20,6 +20,9 @@ pub struct HealthcheckConfig {
 
     #[serde(default = "default_start_period", with = "humantime_serde")]
     pub start_period: Duration,
+
+    #[serde(default = "default_expected_status")]
+    pub expected_status: u16,
 }
 
 fn default_interval() -> Duration {
@@ -36,4 +39,8 @@ fn default_retries() -> u32 {
 
 fn default_start_period() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_expected_status() -> u16 {
+    200
 }

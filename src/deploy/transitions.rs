@@ -187,10 +187,12 @@ impl Deployment<ImagePulled> {
 
         // Convert healthcheck config - translate HTTP check to curl command
         let healthcheck = self.config.healthcheck.as_ref().map(|hc| {
-            let test = vec![
-                "CMD-SHELL".to_string(),
-                format!("curl -f http://localhost:{}{} || exit 1", hc.port, hc.path),
-            ];
+            // Check for specific expected HTTP status code
+            let curl_cmd = format!(
+                "test $(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{}{}) -eq {}",
+                hc.port, hc.path, hc.expected_status
+            );
+            let test = vec!["CMD-SHELL".to_string(), curl_cmd];
             crate::runtime::HealthcheckConfig {
                 test,
                 interval: hc.interval,

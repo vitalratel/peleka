@@ -385,6 +385,26 @@ healthcheck:
         assert_eq!(hc.interval, Duration::from_secs(10));
         assert_eq!(hc.timeout, Duration::from_secs(5));
         assert_eq!(hc.retries, 3);
+        assert_eq!(hc.expected_status, 200);
+    }
+
+    #[test]
+    fn parse_healthcheck_with_expected_status() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+healthcheck:
+  path: /ready
+  port: 3000
+  expected_status: 204
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        let hc = config.healthcheck.unwrap();
+        assert_eq!(hc.path, "/ready");
+        assert_eq!(hc.port, 3000);
+        assert_eq!(hc.expected_status, 204);
     }
 }
 
