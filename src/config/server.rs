@@ -1,6 +1,7 @@
 // ABOUTME: Server configuration for SSH connections.
 // ABOUTME: Parses formats like "host", "user@host", "host:port", "user@host:port".
 
+use crate::runtime::RuntimeType;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -10,6 +11,10 @@ pub struct ServerConfig {
     pub port: u16,
     #[serde(default)]
     pub user: Option<String>,
+    #[serde(default)]
+    pub runtime: Option<RuntimeType>,
+    #[serde(default)]
+    pub socket: Option<String>,
 }
 
 fn default_port() -> u16 {
@@ -48,6 +53,16 @@ impl ServerConfig {
             host: host.to_string(),
             port,
             user: user_part.map(|s| s.to_string()),
+            runtime: None,
+            socket: None,
         })
+    }
+
+    /// Convert to RuntimeConfig for use with detect_runtime.
+    pub fn runtime_config(&self) -> crate::runtime::RuntimeConfig {
+        crate::runtime::RuntimeConfig {
+            runtime: self.runtime,
+            socket: self.socket.clone(),
+        }
     }
 }

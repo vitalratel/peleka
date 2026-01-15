@@ -170,3 +170,41 @@ async fn unknown_host_rejected_without_tofu() {
         err
     );
 }
+
+/// Test: file_exists returns true for existing file.
+#[tokio::test]
+#[ignore = "requires SSH_TEST_HOST environment variable"]
+async fn file_exists_returns_true_for_existing_file() {
+    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let session = Session::connect(config)
+        .await
+        .expect("connection should succeed");
+
+    let exists = session
+        .file_exists("/etc/passwd")
+        .await
+        .expect("file_exists should succeed");
+
+    assert!(exists, "/etc/passwd should exist");
+
+    session.disconnect().await.expect("disconnect should succeed");
+}
+
+/// Test: file_exists returns false for non-existing file.
+#[tokio::test]
+#[ignore = "requires SSH_TEST_HOST environment variable"]
+async fn file_exists_returns_false_for_nonexistent_file() {
+    let config = test_config().expect("SSH_TEST_HOST must be set");
+    let session = Session::connect(config)
+        .await
+        .expect("connection should succeed");
+
+    let exists = session
+        .file_exists("/nonexistent/path/that/does/not/exist")
+        .await
+        .expect("file_exists should succeed");
+
+    assert!(!exists, "nonexistent path should not exist");
+
+    session.disconnect().await.expect("disconnect should succeed");
+}

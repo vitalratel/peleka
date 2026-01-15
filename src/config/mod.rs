@@ -208,6 +208,8 @@ impl Config {
                 host: "server.example.com".to_string(),
                 port: 22,
                 user: Some("deploy".to_string()),
+                runtime: None,
+                socket: None,
             }],
             ports: vec![],
             volumes: vec![],

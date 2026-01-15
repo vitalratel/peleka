@@ -387,3 +387,52 @@ healthcheck:
         assert_eq!(hc.retries, 3);
     }
 }
+
+mod runtime_config {
+    use super::*;
+    use peleka::runtime::RuntimeType;
+
+    #[test]
+    fn parse_server_with_runtime() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+    runtime: podman
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.servers[0].runtime, Some(RuntimeType::Podman));
+    }
+
+    #[test]
+    fn parse_server_with_runtime_and_socket() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+    runtime: docker
+    socket: /custom/docker.sock
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.servers[0].runtime, Some(RuntimeType::Docker));
+        assert_eq!(
+            config.servers[0].socket,
+            Some("/custom/docker.sock".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_server_without_runtime_defaults_to_none() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert!(config.servers[0].runtime.is_none());
+        assert!(config.servers[0].socket.is_none());
+    }
+}

@@ -3,5 +3,6 @@
 
 pub mod config;
 pub mod error;
+pub mod runtime;
 pub mod ssh;
 pub mod types;
