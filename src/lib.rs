@@ -2,6 +2,7 @@
 // ABOUTME: The main binary is in main.rs.
 
 pub mod config;
+pub mod deploy;
 pub mod error;
 pub mod runtime;
 pub mod ssh;
