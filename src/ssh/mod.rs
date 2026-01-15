@@ -3,6 +3,8 @@
 
 mod client;
 mod error;
+mod forward;
 
 pub use client::{CommandOutput, Session, SessionConfig};
 pub use error::{Error, Result};
+pub use forward::ForwardHandle;

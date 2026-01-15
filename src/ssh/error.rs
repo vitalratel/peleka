@@ -21,6 +21,9 @@ pub enum Error {
     #[error("command execution failed: {0}")]
     CommandFailed(String),
 
+    #[error("socket forwarding failed: {0}")]
+    SocketForwardFailed(String),
+
     #[error("SSH protocol error: {0}")]
     Protocol(#[from] russh::Error),
 

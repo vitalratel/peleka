@@ -74,7 +74,7 @@ impl CommandOutput {
 }
 
 /// SSH client handler for russh.
-struct SshHandler {
+pub(crate) struct SshHandler {
     host: String,
     port: u16,
     trust_on_first_use: bool,
@@ -132,7 +132,9 @@ enum AuthMethod {
 /// An established SSH session.
 pub struct Session {
     config: SessionConfig,
-    handle: Handle<SshHandler>,
+    handle: Arc<Handle<SshHandler>>,
+    /// Active socket forwarders.
+    forwarders: Vec<super::forward::ForwardHandle>,
 }
 
 impl std::fmt::Debug for Session {
@@ -184,7 +186,8 @@ impl Session {
 
         Ok(Self {
             config,
-            handle: session,
+            handle: Arc::new(session),
+            forwarders: Vec::new(),
         })
     }
 
@@ -339,8 +342,26 @@ impl Session {
         })
     }
 
+    /// Forward a local Unix socket to a remote Unix socket.
+    ///
+    /// Creates a local socket that tunnels all connections through SSH to
+    /// the specified remote socket path. Returns the path to the local socket.
+    pub async fn forward_socket(&mut self, remote_socket: &str) -> Result<String> {
+        let forward_handle =
+            super::forward::start_forward(Arc::clone(&self.handle), remote_socket.to_string())
+                .await?;
+        let path = forward_handle.path().to_string();
+        self.forwarders.push(forward_handle);
+        Ok(path)
+    }
+
     /// Disconnect the session.
-    pub async fn disconnect(self) -> Result<()> {
+    pub async fn disconnect(mut self) -> Result<()> {
+        // Stop all forwarders first
+        for forwarder in self.forwarders.drain(..) {
+            forwarder.stop().await;
+        }
+
         self.handle
             .disconnect(Disconnect::ByApplication, "", "en")
             .await
