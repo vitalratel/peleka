@@ -1,0 +1,32 @@
+# Build artifacts
+/target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (if any local testing)
+.env.local
+tests/fixtures/test_key*
+
+# Internal documentation
+docs-internal/
+
+# Claude Code configuration
+CLAUDE.md
+.mcp.json
+
+# Spike/prototype code
+spikes/
+
+
+# Added by cargo
+
+/target
