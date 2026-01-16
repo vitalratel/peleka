@@ -257,7 +257,7 @@ impl Deployment<ImagePulled> {
             labels,
             ports,
             volumes,
-            command: None,
+            command: self.config.command.clone(),
             entrypoint: None,
             working_dir: None,
             user: None,

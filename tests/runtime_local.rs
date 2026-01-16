@@ -65,7 +65,7 @@ async fn runtime_ping() {
 async fn pull_public_image() {
     let runtime = require_runtime!();
 
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
 
     runtime
         .pull_image(&image_ref, None)
@@ -102,7 +102,7 @@ async fn container_lifecycle() {
     let runtime = require_runtime!();
 
     // Ensure we have the alpine image
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -197,7 +197,7 @@ async fn container_lifecycle() {
 async fn rename_container() {
     let runtime = require_runtime!();
 
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -258,7 +258,7 @@ async fn rename_container() {
 async fn network_operations() {
     let runtime = require_runtime!();
 
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -366,7 +366,7 @@ async fn network_operations() {
 async fn exec_command() {
     let runtime = require_runtime!();
 
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)
@@ -492,7 +492,7 @@ async fn exec_command() {
 async fn log_streaming() {
     let runtime = require_runtime!();
 
-    let image_ref = ImageRef::parse("alpine:latest").expect("valid image ref");
+    let image_ref = ImageRef::parse("docker.io/library/busybox:1.36").expect("valid image ref");
     if !runtime.image_exists(&image_ref).await.unwrap_or(false) {
         runtime
             .pull_image(&image_ref, None)

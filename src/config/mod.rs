@@ -48,6 +48,9 @@ pub struct Config {
     pub labels: HashMap<String, String>,
 
     #[serde(default)]
+    pub command: Option<Vec<String>>,
+
+    #[serde(default)]
     pub healthcheck: Option<HealthcheckConfig>,
 
     #[serde(default)]
@@ -215,6 +218,7 @@ impl Config {
             volumes: vec![],
             env: HashMap::new(),
             labels: HashMap::new(),
+            command: None,
             healthcheck: None,
             resources: None,
             network: None,

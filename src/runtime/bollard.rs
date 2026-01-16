@@ -748,8 +748,11 @@ impl ContainerOps for BollardRuntime {
                 }
                 Err(e) => {
                     let err_str = e.to_string();
-                    // Podman's "stopping" state causes deserialization failure
-                    if err_str.contains("unknown variant `stopping`") && attempt < 2 {
+                    // Podman's "stopping"/"stopped" states cause deserialization failure
+                    if (err_str.contains("unknown variant `stopping`")
+                        || err_str.contains("unknown variant `stopped`"))
+                        && attempt < 2
+                    {
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                         last_error = Some(err_str);
                         continue;

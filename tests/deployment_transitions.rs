@@ -119,7 +119,8 @@ async fn full_deployment_chain() {
     // Create deployment config with network
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("test-deploy").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
+    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
     deploy_config.network = Some(peleka::config::NetworkConfig {
         name: "peleka-test-network".to_string(),
         aliases: vec![],
@@ -183,7 +184,8 @@ async fn container_start_failure_cleans_up() {
     // Create deployment config with invalid command that will fail to start
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("test-fail-start").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
+    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
 
     // Pull the image first
     let d1 = Deployment::new(deploy_config);
@@ -228,7 +230,8 @@ async fn rollback_from_container_started_removes_container() {
     // Create deployment
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("test-rollback").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
+    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
 
     let d1 = Deployment::new(deploy_config);
     let d2 = d1

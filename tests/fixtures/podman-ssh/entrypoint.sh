@@ -34,6 +34,10 @@ done
 # Verify Podman is working
 su - testuser -c "XDG_RUNTIME_DIR=/run/user/$TESTUSER_UID podman info" > /dev/null 2>&1 && echo "Podman is working" || echo "Warning: Podman may not be fully ready"
 
+# Pre-pull test image (busybox with shell for health checks)
+echo "Pre-pulling test image..."
+su - testuser -c "XDG_RUNTIME_DIR=/run/user/$TESTUSER_UID podman pull docker.io/library/busybox:1.36" 2>&1 || echo "Warning: Failed to pre-pull test image"
+
 # Start SSH server in foreground
 echo "Starting SSH server..."
 exec /usr/sbin/sshd -D -e
