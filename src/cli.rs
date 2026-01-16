@@ -40,6 +40,13 @@ pub enum Commands {
         destination: Option<String>,
     },
 
+    /// Rollback to the previous deployment
+    Rollback {
+        /// Target destination (defined in config)
+        #[arg(short, long)]
+        destination: Option<String>,
+    },
+
     /// Show deployment status
     Status,
 

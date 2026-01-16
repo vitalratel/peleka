@@ -6,7 +6,7 @@ mod cli;
 use clap::Parser;
 use cli::{Cli, Commands};
 use peleka::config::{self, Config, ServerConfig};
-use peleka::deploy::{Deployment, Initialized};
+use peleka::deploy::{Deployment, Initialized, manual_rollback};
 use peleka::error::{Error, Result};
 use peleka::runtime::{
     BollardRuntime, ContainerFilters, ContainerOps, connect_via_session, detect_runtime,
@@ -63,6 +63,19 @@ async fn run(cli: Cli) -> Result<()> {
 
             deploy(config).await
         }
+        Commands::Rollback { destination } => {
+            let cwd = env::current_dir().expect("Failed to get current directory");
+            let config = Config::discover(&cwd)?;
+
+            // Apply destination overrides if specified
+            let config = if let Some(dest) = destination {
+                config.for_destination(&dest)?
+            } else {
+                config
+            };
+
+            rollback(config).await
+        }
         Commands::Status => {
             let cwd = env::current_dir().expect("Failed to get current directory");
             Config::discover(&cwd).map(|config| {
@@ -112,6 +125,88 @@ async fn deploy(config: Config) -> Result<()> {
     }
 
     println!("Deployment complete!");
+    Ok(())
+}
+
+/// Rollback to previous deployment on all configured servers.
+async fn rollback(config: Config) -> Result<()> {
+    if config.servers.is_empty() {
+        return Err(Error::NoServers);
+    }
+
+    println!(
+        "Rolling back {} on {} server(s)",
+        config.service,
+        config.servers.len()
+    );
+
+    for server in &config.servers {
+        if let Err(e) = rollback_on_server(&config, server).await {
+            eprintln!("Failed to rollback on {}: {}", server.host, e);
+            return Err(e);
+        }
+    }
+
+    println!("Rollback complete!");
+    Ok(())
+}
+
+/// Rollback on a single server.
+async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()> {
+    println!("  → Connecting to {}...", server.host);
+
+    // Create SSH session
+    let user = server
+        .user
+        .clone()
+        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
+
+    let ssh_config = SessionConfig::new(&server.host, &user)
+        .port(server.port)
+        .trust_on_first_use(true);
+
+    let mut session = Session::connect(ssh_config)
+        .await
+        .map_err(|e| Error::Ssh(e.to_string()))?;
+
+    // Detect runtime
+    println!("  → Detecting runtime...");
+    let runtime_info = detect_runtime(&session, Some(&server.runtime_config()))
+        .await
+        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+
+    println!(
+        "  → Found {} at {}",
+        runtime_info.runtime_type, runtime_info.socket_path
+    );
+
+    // Connect to runtime via SSH tunnel
+    let runtime = connect_via_session(&mut session, runtime_info.runtime_type)
+        .await
+        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+
+    // Get network ID
+    let network_name = config
+        .network
+        .as_ref()
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| "peleka".to_string());
+    let network_id = peleka::types::NetworkId::new(network_name);
+
+    // Perform rollback
+    println!("  → Swapping containers...");
+    manual_rollback(&runtime, &config.service, &network_id)
+        .await
+        .map_err(|e| Error::Deploy(e.to_string()))?;
+
+    println!("  ✓ Rollback successful");
+
+    // Disconnect SSH session
+    session
+        .disconnect()
+        .await
+        .map_err(|e| Error::Ssh(e.to_string()))?;
+
     Ok(())
 }
 

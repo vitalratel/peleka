@@ -47,6 +47,7 @@ impl<S> Deployment<S> {
     /// Generate container name for this deployment.
     fn container_name(&self) -> String {
         // Use blue/green naming for zero-downtime deployment
+        // The actual state (active/previous) is tracked via labels
         let suffix = if self.old_container.is_some() {
             "green"
         } else {
@@ -191,13 +192,13 @@ impl Deployment<ImagePulled> {
             self.config.service.to_string(),
         );
         labels.insert("peleka.managed".to_string(), "true".to_string());
-        // Track blue/green state for zero-downtime deployment
-        let state = if self.old_container.is_some() {
+        // Track deployment slot (blue/green) for zero-downtime deployment
+        let slot = if self.old_container.is_some() {
             "green"
         } else {
             "blue"
         };
-        labels.insert("peleka.state".to_string(), state.to_string());
+        labels.insert("peleka.slot".to_string(), slot.to_string());
 
         // Parse volumes from config
         let volumes: Vec<VolumeMount> = self
@@ -462,7 +463,8 @@ impl Deployment<CutOver> {
     /// Clean up the old container (if any).
     ///
     /// Waits for the configured grace period to allow in-flight requests
-    /// to complete before stopping the old container.
+    /// to complete before stopping the old container. The old container is
+    /// kept (stopped) to enable manual rollback.
     ///
     /// # Errors
     ///
@@ -493,10 +495,13 @@ impl Deployment<CutOver> {
                 .map(|s| s.timeout)
                 .unwrap_or_else(|| Duration::from_secs(30));
 
+            // Stop the old container but keep it for potential rollback
             runtime
                 .stop_container(old_container_id, stop_timeout)
                 .await?;
-            runtime.remove_container(old_container_id, false).await?;
+            // Note: We intentionally don't remove the old container to enable
+            // manual rollback via `peleka rollback`. The stopped container
+            // becomes the "previous" version that can be restored.
         }
 
         Ok(self.transition())

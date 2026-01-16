@@ -132,11 +132,11 @@ async fn first_deployment_creates_blue_container() {
         .await
         .expect("inspect should succeed");
 
-    // Verify peleka.state label is "blue"
+    // Verify peleka.slot label is "blue" (first deployment uses blue slot)
     assert_eq!(
-        info.labels.get("peleka.state"),
+        info.labels.get("peleka.slot"),
         Some(&"blue".to_string()),
-        "first deployment should be blue"
+        "first deployment should use blue slot"
     );
     assert_eq!(
         info.labels.get("peleka.managed"),

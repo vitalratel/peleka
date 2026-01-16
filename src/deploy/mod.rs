@@ -4,11 +4,13 @@
 mod deployment;
 mod error;
 mod orphans;
+mod rollback;
 mod state;
 mod transitions;
 
 pub use deployment::Deployment;
 pub use error::DeployError;
 pub use orphans::{cleanup_orphans, detect_orphans};
+pub use rollback::manual_rollback;
 pub use state::{Completed, ContainerStarted, CutOver, HealthChecked, ImagePulled, Initialized};
 pub use transitions::TransitionResult;

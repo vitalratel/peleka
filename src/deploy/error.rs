@@ -50,6 +50,10 @@ pub enum DeployError {
     #[error("no old container to rollback to (first deployment)")]
     NoOldContainer,
 
+    /// No previous deployment exists for rollback.
+    #[error("no previous deployment exists for service {0}")]
+    NoPreviousDeployment(String),
+
     /// Configuration error.
     #[error("configuration error: {0}")]
     ConfigError(String),
