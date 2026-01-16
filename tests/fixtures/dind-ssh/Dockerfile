@@ -4,8 +4,8 @@
 
 FROM docker:27-dind
 
-# Install OpenSSH server
-RUN apk add --no-cache openssh-server
+# Install OpenSSH server (upgrade first to resolve version conflicts)
+RUN apk upgrade --no-cache && apk add --no-cache openssh-server
 
 # Create test user
 RUN adduser -D -s /bin/sh testuser && \
@@ -14,7 +14,8 @@ RUN adduser -D -s /bin/sh testuser && \
 # Setup SSH
 RUN mkdir -p /home/testuser/.ssh && \
     chmod 700 /home/testuser/.ssh && \
-    ssh-keygen -A
+    ssh-keygen -A && \
+    echo "AllowStreamLocalForwarding yes" >> /etc/ssh/sshd_config
 
 # Copy entrypoint
 COPY entrypoint.sh /entrypoint.sh

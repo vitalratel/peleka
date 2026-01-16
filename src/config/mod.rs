@@ -227,14 +227,28 @@ impl Config {
     }
 }
 
-pub fn init_config(dir: &Path) -> Result<()> {
+pub fn init_config(
+    dir: &Path,
+    service: Option<&str>,
+    image: Option<&str>,
+    force: bool,
+) -> Result<()> {
     let config_path = dir.join(CONFIG_FILENAME);
 
-    if config_path.exists() {
+    if config_path.exists() && !force {
         return Err(Error::AlreadyExists(config_path));
     }
 
-    let config = Config::template();
+    let mut config = Config::template();
+
+    if let Some(s) = service {
+        config.service = ServiceName::new(s).map_err(|e| Error::InvalidConfig(e.to_string()))?;
+    }
+
+    if let Some(i) = image {
+        config.image = ImageRef::parse(i).map_err(|e| Error::InvalidConfig(e.to_string()))?;
+    }
+
     let yaml = generate_template_yaml(&config);
     std::fs::write(&config_path, yaml)?;
 

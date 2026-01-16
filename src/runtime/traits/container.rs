@@ -45,6 +45,19 @@ pub trait ContainerOps: Sealed + Send + Sync {
         id: &ContainerId,
         new_name: &str,
     ) -> Result<(), ContainerError>;
+
+    /// Manually run a health check command for a container.
+    ///
+    /// This executes the provided command inside the container and returns
+    /// true if the command exits with code 0 (healthy), false otherwise.
+    ///
+    /// This is useful for runtimes that don't automatically run health checks
+    /// (e.g., rootless Podman without systemd).
+    async fn run_healthcheck(
+        &self,
+        id: &ContainerId,
+        cmd: &[String],
+    ) -> Result<bool, ContainerError>;
 }
 
 /// Filters for listing containers.

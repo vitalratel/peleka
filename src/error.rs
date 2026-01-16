@@ -18,6 +18,9 @@ pub enum Error {
     #[error("missing required environment variable: {0}")]
     MissingEnvVar(String),
 
+    #[error("invalid configuration: {0}")]
+    InvalidConfig(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

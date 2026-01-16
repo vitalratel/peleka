@@ -92,9 +92,9 @@ fn rollback_from_health_checked_compiles() {
 
 use peleka::ssh::{Session, SessionConfig};
 
-/// Get SSH config for the shared DinD test container.
-async fn dind_session_config() -> SessionConfig {
-    support::dind_container::shared_dind_container()
+/// Get SSH config for the shared Podman test container.
+async fn podman_session_config() -> SessionConfig {
+    support::podman_container::shared_podman_container()
         .await
         .session_config()
 }
@@ -104,36 +104,36 @@ async fn dind_session_config() -> SessionConfig {
 async fn full_deployment_chain() {
     use peleka::config::Config;
     use peleka::deploy::Deployment;
-    use peleka::runtime::{NetworkConfig, NetworkOps, RuntimeType};
+    use peleka::runtime::{NetworkOps, RuntimeType};
 
-    let config = dind_session_config().await;
+    let config = podman_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
-        .expect("should create Docker runtime");
+        .expect("should create Podman runtime");
 
-    // Create a test network
-    let network_config = NetworkConfig {
-        name: "peleka-test-network".to_string(),
-        driver: Some("bridge".to_string()),
-        labels: std::collections::HashMap::new(),
-    };
-    let network_id = runtime
-        .create_network(&network_config)
-        .await
-        .expect("should create network");
-
-    // Create deployment config
+    // Create deployment config with network
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("test-deploy").unwrap();
     deploy_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    deploy_config.network = Some(peleka::config::NetworkConfig {
+        name: "peleka-test-network".to_string(),
+        aliases: vec![],
+    });
 
     // Run through deployment chain
     let d1 = Deployment::new(deploy_config);
+
+    // Use ensure_network to create the network properly
+    let network_id = d1
+        .ensure_network(&runtime)
+        .await
+        .expect("network should be created");
+
     let d2 = d1
         .pull_image(&runtime, None)
         .await
@@ -154,8 +154,7 @@ async fn full_deployment_chain() {
 
     let _final_config = d6.finish();
 
-    // Clean up: remove the test container and network
-    // (The container was already cleaned up by the deployment)
+    // Clean up network
     let _ = runtime.remove_network(&network_id).await;
 
     session
@@ -171,13 +170,13 @@ async fn container_start_failure_cleans_up() {
     use peleka::deploy::Deployment;
     use peleka::runtime::RuntimeType;
 
-    let config = dind_session_config().await;
+    let config = podman_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -216,13 +215,13 @@ async fn rollback_from_container_started_removes_container() {
     use peleka::deploy::Deployment;
     use peleka::runtime::{ContainerFilters, ContainerOps, RuntimeType};
 
-    let config = dind_session_config().await;
+    let config = podman_session_config().await;
 
     let mut session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 

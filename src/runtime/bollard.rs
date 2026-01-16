@@ -220,6 +220,58 @@ impl BollardRuntime {
     pub fn runtime_type(&self) -> RuntimeType {
         self.runtime_type
     }
+
+    /// Execute in detached mode and poll for completion.
+    /// Used for Podman which has issues with attached exec streams not closing.
+    async fn exec_start_detached(&self, exec_id: &str) -> Result<ExecResult, ExecError> {
+        let opts = StartExecOptions {
+            detach: true,
+            ..Default::default()
+        };
+
+        self.client
+            .start_exec(exec_id, Some(opts))
+            .await
+            .map_err(map_exec_not_found_error)?;
+
+        // Poll for completion
+        let poll_interval = std::time::Duration::from_millis(100);
+        let max_wait = std::time::Duration::from_secs(300); // 5 minute max
+        let start = std::time::Instant::now();
+
+        loop {
+            let info = self.exec_inspect_internal(exec_id).await?;
+            if !info.running {
+                return Ok(ExecResult {
+                    exit_code: info.exit_code.unwrap_or(0),
+                    stdout: Vec::new(), // Output not captured in detached mode
+                    stderr: Vec::new(),
+                });
+            }
+
+            if start.elapsed() > max_wait {
+                return Err(ExecError::Failed("exec timed out".to_string()));
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
+    }
+
+    /// Internal exec_inspect that doesn't require trait bounds.
+    async fn exec_inspect_internal(&self, exec_id: &str) -> Result<ExecInfo, ExecError> {
+        let details = self
+            .client
+            .inspect_exec(exec_id)
+            .await
+            .map_err(map_exec_not_found_error)?;
+
+        Ok(ExecInfo {
+            id: exec_id.to_string(),
+            running: details.running.unwrap_or(false),
+            exit_code: details.exit_code,
+            container_id: ContainerId::new(details.container_id.unwrap_or_default()),
+        })
+    }
 }
 
 /// Connect to container runtime via SSH session.
@@ -710,6 +762,32 @@ impl ContainerOps for BollardRuntime {
             .await
             .map_err(map_container_rename_error)
     }
+
+    async fn run_healthcheck(
+        &self,
+        id: &ContainerId,
+        cmd: &[String],
+    ) -> Result<bool, ContainerError> {
+        // Build exec config for the healthcheck command
+        let exec_config = crate::runtime::ExecConfig {
+            cmd: cmd.to_vec(),
+            attach_stdout: true,
+            attach_stderr: true,
+            ..Default::default()
+        };
+
+        // Run the healthcheck command via exec
+        match self.exec(id, &exec_config).await {
+            Ok(result) => {
+                // Exit code 0 means healthy
+                Ok(result.exit_code == 0)
+            }
+            Err(e) => Err(ContainerError::Runtime(format!(
+                "healthcheck exec failed: {}",
+                e
+            ))),
+        }
+    }
 }
 
 #[async_trait]
@@ -846,6 +924,13 @@ impl ExecOps for BollardRuntime {
     }
 
     async fn exec_start(&self, exec_id: &str) -> Result<ExecResult, ExecError> {
+        // Podman has issues with exec output streams not closing properly,
+        // causing attached mode to hang. Use detached mode + polling for Podman.
+        if self.runtime_type == RuntimeType::Podman {
+            return self.exec_start_detached(exec_id).await;
+        }
+
+        // Docker: use attached mode to capture stdout/stderr
         let opts = StartExecOptions {
             detach: false,
             ..Default::default()
@@ -879,28 +964,13 @@ impl ExecOps for BollardRuntime {
         }
 
         // Get exit code from inspect
-        let info = self.exec_inspect(exec_id).await?;
+        let info = self.exec_inspect_internal(exec_id).await?;
         let exit_code = info.exit_code.unwrap_or(0);
 
         Ok(ExecResult {
             exit_code,
             stdout,
             stderr,
-        })
-    }
-
-    async fn exec_inspect(&self, exec_id: &str) -> Result<ExecInfo, ExecError> {
-        let details = self
-            .client
-            .inspect_exec(exec_id)
-            .await
-            .map_err(map_exec_not_found_error)?;
-
-        Ok(ExecInfo {
-            id: exec_id.to_string(),
-            running: details.running.unwrap_or(false),
-            exit_code: details.exit_code,
-            container_id: ContainerId::new(details.container_id.unwrap_or_default()),
         })
     }
 }

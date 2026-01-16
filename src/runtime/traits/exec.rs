@@ -2,7 +2,7 @@
 // ABOUTME: Execute commands inside running containers.
 
 use super::sealed::Sealed;
-use super::shared_types::{ExecConfig, ExecInfo, ExecResult};
+use super::shared_types::{ExecConfig, ExecResult};
 use crate::types::ContainerId;
 use async_trait::async_trait;
 
@@ -25,9 +25,6 @@ pub trait ExecOps: Sealed + Send + Sync {
 
     /// Start a created exec instance.
     async fn exec_start(&self, exec_id: &str) -> Result<ExecResult, ExecError>;
-
-    /// Get information about an exec instance.
-    async fn exec_inspect(&self, exec_id: &str) -> Result<ExecInfo, ExecError>;
 }
 
 /// Errors from exec operations.

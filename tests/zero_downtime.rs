@@ -9,9 +9,9 @@ use peleka::runtime::{ContainerFilters, ContainerOps, NetworkOps, RuntimeType};
 use peleka::ssh::{Session, SessionConfig};
 use std::time::Duration;
 
-/// Get SSH config for the shared DinD test container.
-async fn dind_session_config() -> SessionConfig {
-    support::dind_container::shared_dind_container()
+/// Get SSH config for the shared Podman test container.
+async fn podman_session_config() -> SessionConfig {
+    support::podman_container::shared_podman_container()
         .await
         .session_config()
 }
@@ -19,13 +19,13 @@ async fn dind_session_config() -> SessionConfig {
 /// Test: ensure_network creates network if it doesn't exist.
 #[tokio::test]
 async fn ensure_network_creates_if_not_exists() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -93,13 +93,13 @@ async fn ensure_network_creates_if_not_exists() {
 /// Test: First deployment creates blue container.
 #[tokio::test]
 async fn first_deployment_creates_blue_container() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -157,13 +157,13 @@ async fn first_deployment_creates_blue_container() {
 /// Test: Detect orphans finds containers not in known list.
 #[tokio::test]
 async fn detect_orphans_finds_unknown_containers() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -223,13 +223,13 @@ async fn detect_orphans_finds_unknown_containers() {
 /// Test: Cleanup with grace period waits before stopping.
 #[tokio::test]
 async fn cleanup_waits_for_grace_period() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -237,8 +237,12 @@ async fn cleanup_waits_for_grace_period() {
     let mut old_config = Config::template();
     old_config.service = peleka::types::ServiceName::new("test-grace").unwrap();
     old_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    old_config.network = Some(peleka::config::NetworkConfig {
+        name: "peleka-grace-test".to_string(),
+        aliases: vec![],
+    });
 
-    let old_deployment = Deployment::new(old_config);
+    let old_deployment = Deployment::new(old_config.clone());
     let network_id = old_deployment.ensure_network(&runtime).await.unwrap();
 
     let d2 = old_deployment.pull_image(&runtime, None).await.unwrap();
@@ -252,6 +256,10 @@ async fn cleanup_waits_for_grace_period() {
     let mut new_config = Config::template();
     new_config.service = peleka::types::ServiceName::new("test-grace").unwrap();
     new_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    new_config.network = Some(peleka::config::NetworkConfig {
+        name: "peleka-grace-test".to_string(),
+        aliases: vec![],
+    });
     new_config.cleanup = Some(CleanupConfig {
         grace_period: Duration::from_millis(100), // Very short for testing
     });
@@ -299,13 +307,13 @@ async fn cleanup_waits_for_grace_period() {
 /// Test: Full blue-green deployment flow.
 #[tokio::test]
 async fn full_blue_green_deployment() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -315,6 +323,10 @@ async fn full_blue_green_deployment() {
     let mut blue_config = Config::template();
     blue_config.service = peleka::types::ServiceName::new(service_name).unwrap();
     blue_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    blue_config.network = Some(peleka::config::NetworkConfig {
+        name: "peleka-bluegreen-test".to_string(),
+        aliases: vec![],
+    });
     blue_config.cleanup = Some(CleanupConfig {
         grace_period: Duration::from_millis(10), // Short for testing
     });

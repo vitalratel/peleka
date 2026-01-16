@@ -16,7 +16,8 @@ RUN useradd -m -s /bin/bash testuser && \
 RUN mkdir -p /home/testuser/.ssh && \
     chmod 700 /home/testuser/.ssh && \
     chown -R testuser:testuser /home/testuser/.ssh && \
-    ssh-keygen -A
+    ssh-keygen -A && \
+    echo "AllowStreamLocalForwarding yes" >> /etc/ssh/sshd_config
 
 # Setup Podman for testuser (rootless)
 RUN mkdir -p /home/testuser/.config/containers && \

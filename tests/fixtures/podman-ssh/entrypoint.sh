@@ -13,8 +13,8 @@ fi
 
 # Create XDG_RUNTIME_DIR for testuser (needed for rootless Podman)
 TESTUSER_UID=$(id -u testuser)
-mkdir -p /run/user/$TESTUSER_UID
-chown testuser:testuser /run/user/$TESTUSER_UID
+mkdir -p /run/user/$TESTUSER_UID/podman
+chown -R testuser:testuser /run/user/$TESTUSER_UID
 chmod 700 /run/user/$TESTUSER_UID
 
 # Start Podman socket service as testuser in background

@@ -12,7 +12,7 @@ serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 thiserror = "2"
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 humantime-serde = "1"
 russh = { version = "0.56", features = ["aws-lc-rs"] }

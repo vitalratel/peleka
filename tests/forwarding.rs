@@ -18,6 +18,7 @@ async fn podman_session_config() -> SessionConfig {
 /// Expected: Can send HTTP request through forwarded socket.
 #[tokio::test]
 async fn forward_to_podman_socket() {
+    support::init_tracing();
     let config = podman_session_config().await;
 
     let mut session = Session::connect(config)

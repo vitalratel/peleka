@@ -248,9 +248,11 @@ impl DindContainer {
                     Ok(Ok(n)) if n > 0 => {
                         let banner = String::from_utf8_lossy(&buf[..n]);
                         if banner.starts_with("SSH-") {
-                            // SSH is ready, give Docker daemon extra time to initialize
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                            return Ok(());
+                            // SSH is ready, now wait for Docker daemon to be ready
+                            // by actually connecting and checking via SSH
+                            if Self::wait_for_docker_ready(port).await.is_ok() {
+                                return Ok(());
+                            }
                         }
                     }
                     _ => {}
@@ -259,5 +261,31 @@ impl DindContainer {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
         Err("DinD container did not become ready in time".into())
+    }
+
+    /// Wait for Docker daemon to be ready inside the DinD container via SSH.
+    async fn wait_for_docker_ready(
+        port: u16,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let config = SessionConfig::new("127.0.0.1", TEST_USER)
+            .port(port)
+            .key_path(Self::test_key_path())
+            .trust_on_first_use(true);
+
+        // Try connecting and checking Docker status for up to 30 seconds
+        for _ in 0..30 {
+            if let Ok(session) = peleka::ssh::Session::connect(config.clone()).await {
+                // Try to run 'docker info' to check if daemon is ready
+                if let Ok(result) = session.exec("docker info").await {
+                    if result.exit_code == 0 {
+                        let _ = session.disconnect().await;
+                        return Ok(());
+                    }
+                }
+                let _ = session.disconnect().await;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        Err("Docker daemon did not become ready in time".into())
     }
 }

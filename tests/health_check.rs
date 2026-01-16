@@ -9,9 +9,9 @@ use peleka::runtime::{ContainerOps, NetworkConfig, NetworkOps, RuntimeType};
 use peleka::ssh::{Session, SessionConfig};
 use std::time::Duration;
 
-/// Get SSH config for the shared DinD test container.
-async fn dind_session_config() -> SessionConfig {
-    support::dind_container::shared_dind_container()
+/// Get SSH config for the shared Podman test container.
+async fn podman_session_config() -> SessionConfig {
+    support::podman_container::shared_podman_container()
         .await
         .session_config()
 }
@@ -19,40 +19,40 @@ async fn dind_session_config() -> SessionConfig {
 /// Test: Health check passes when endpoint returns expected status.
 #[tokio::test]
 async fn health_check_passes_with_healthy_endpoint() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
-        .expect("should create Docker runtime");
-
-    // Create a test network
-    let network_config = NetworkConfig {
-        name: "peleka-health-test".to_string(),
-        driver: Some("bridge".to_string()),
-        labels: std::collections::HashMap::new(),
-    };
-    let network_id = runtime
-        .create_network(&network_config)
-        .await
-        .expect("should create network");
+        .expect("should create Podman runtime");
 
     // Use nginx:alpine which serves HTTP on port 80
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("health-test-pass").unwrap();
     deploy_config.image = peleka::types::ImageRef::parse("nginx:alpine").unwrap();
+    deploy_config.network = Some(peleka::config::NetworkConfig {
+        name: "peleka-health-test".to_string(),
+        aliases: vec![],
+    });
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "wget -q --spider http://localhost:80/".to_string(),
         interval: Duration::from_secs(2),
-        timeout: Duration::from_secs(5),
+        timeout: Duration::from_secs(30), // Longer timeout for SSH exec overhead
         retries: 3,
         start_period: Duration::from_secs(5),
     });
 
     let d1 = Deployment::new(deploy_config);
+
+    // Ensure network exists
+    let network_id = d1
+        .ensure_network(&runtime)
+        .await
+        .expect("network should be created");
+
     let d2 = d1
         .pull_image(&runtime, None)
         .await
@@ -87,13 +87,13 @@ async fn health_check_passes_with_healthy_endpoint() {
 /// Test: Health check fails when endpoint returns unexpected status.
 #[tokio::test]
 async fn health_check_fails_with_unhealthy_endpoint() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -160,13 +160,13 @@ async fn health_check_fails_with_unhealthy_endpoint() {
 /// Test: Health check with TCP check (nc -z).
 #[tokio::test]
 async fn health_check_with_tcp_command() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -188,7 +188,7 @@ async fn health_check_with_tcp_command() {
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "nc -z localhost 80".to_string(), // TCP check - port 80 open = success
         interval: Duration::from_secs(2),
-        timeout: Duration::from_secs(5),
+        timeout: Duration::from_secs(30), // Longer timeout for SSH exec overhead
         retries: 3,
         start_period: Duration::from_secs(5),
     });
@@ -226,13 +226,13 @@ async fn health_check_with_tcp_command() {
 /// Test: Health check times out when endpoint never becomes healthy.
 #[tokio::test]
 async fn health_check_timeout_handled() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -290,13 +290,13 @@ async fn health_check_timeout_handled() {
 /// Test: Rollback returns container for cleanup after health check failure.
 #[tokio::test]
 async fn rollback_returns_container_on_health_failure() {
-    let ssh_config = dind_session_config().await;
+    let ssh_config = podman_session_config().await;
 
     let mut session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Docker)
+    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -343,18 +343,12 @@ async fn rollback_returns_container_on_health_failure() {
     // Verify container is gone
     assert!(d1_again.new_container().is_none());
 
-    // Verify container was actually removed
-    use peleka::runtime::ContainerFilters;
-    let filters = ContainerFilters {
-        all: true,
-        ..Default::default()
-    };
-    let containers = runtime
-        .list_containers(&filters)
-        .await
-        .expect("list should succeed");
-    let found = containers.iter().any(|c| c.id == container_id);
-    assert!(!found, "container should have been removed by rollback");
+    // Verify container was actually removed by trying to inspect it
+    let inspect_result = runtime.inspect_container(&container_id).await;
+    assert!(
+        inspect_result.is_err(),
+        "container should have been removed by rollback"
+    );
 
     session
         .disconnect()

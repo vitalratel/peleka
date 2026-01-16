@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use crate::config::Config;
 use crate::runtime::{
-    ContainerConfig, ContainerOps, HealthState, ImageOps, NetworkConfig as RuntimeNetworkConfig,
-    NetworkOps, RegistryAuth, RestartPolicyConfig, VolumeMount,
+    ContainerConfig, ContainerOps, ImageOps, NetworkConfig as RuntimeNetworkConfig, NetworkOps,
+    RegistryAuth, RestartPolicyConfig, VolumeMount,
 };
 use crate::types::{ContainerId, NetworkAlias, NetworkId};
 
@@ -285,6 +285,11 @@ impl Deployment<ImagePulled> {
 impl Deployment<ContainerStarted> {
     /// Wait for health checks to pass.
     ///
+    /// This method actively triggers health checks rather than waiting for the
+    /// container runtime to run them automatically. This is necessary because
+    /// some runtimes (e.g., rootless Podman without systemd) don't automatically
+    /// execute health check commands.
+    ///
     /// # Errors
     ///
     /// Returns `(self, error)` on failure to allow rollback.
@@ -300,39 +305,72 @@ impl Deployment<ContainerStarted> {
             .expect("new container must exist");
 
         // If no healthcheck is configured, skip the check
-        if self.config.healthcheck.is_none() {
-            return Ok(self.transition());
-        }
+        let healthcheck = match &self.config.healthcheck {
+            Some(hc) => hc,
+            None => return Ok(self.transition()),
+        };
+
+        // Build the healthcheck command: ["sh", "-c", cmd]
+        let healthcheck_cmd = vec!["sh".to_string(), "-c".to_string(), healthcheck.cmd.clone()];
 
         let start = std::time::Instant::now();
-        let poll_interval = Duration::from_secs(2);
+        let poll_interval = healthcheck.interval;
+        let mut retries_remaining = healthcheck.retries;
+
+        // Wait for start period before beginning health checks
+        if healthcheck.start_period > Duration::ZERO {
+            tokio::time::sleep(healthcheck.start_period).await;
+        }
 
         while start.elapsed() < timeout {
-            match runtime.inspect_container(container_id).await {
-                Ok(info) => {
-                    match info.health {
-                        Some(HealthState::Healthy) => return Ok(self.transition()),
-                        Some(HealthState::Unhealthy) => {
-                            return Err((
-                                self,
-                                DeployError::HealthCheckFailed(
-                                    "container reported unhealthy".to_string(),
-                                ),
-                            ));
-                        }
-                        Some(HealthState::Starting) | Some(HealthState::None) | None => {
-                            // Still waiting, continue polling
-                        }
-                    }
+            // Manually trigger the healthcheck with a timeout
+            let healthcheck_result = tokio::time::timeout(
+                healthcheck.timeout,
+                runtime.run_healthcheck(container_id, &healthcheck_cmd),
+            )
+            .await;
+
+            match healthcheck_result {
+                Ok(Ok(true)) => {
+                    // Healthy
+                    return Ok(self.transition());
                 }
-                Err(e) => {
-                    return Err((
-                        self,
-                        DeployError::HealthCheckFailed(format!(
-                            "failed to inspect container: {}",
-                            e
-                        )),
-                    ));
+                Ok(Ok(false)) => {
+                    // Unhealthy - decrement retries
+                    if retries_remaining == 0 {
+                        return Err((
+                            self,
+                            DeployError::HealthCheckFailed(
+                                "container reported unhealthy after retries exhausted".to_string(),
+                            ),
+                        ));
+                    }
+                    retries_remaining -= 1;
+                }
+                Ok(Err(e)) => {
+                    // Error running healthcheck - treat as unhealthy
+                    if retries_remaining == 0 {
+                        return Err((
+                            self,
+                            DeployError::HealthCheckFailed(format!(
+                                "healthcheck exec failed: {}",
+                                e
+                            )),
+                        ));
+                    }
+                    retries_remaining -= 1;
+                }
+                Err(_elapsed) => {
+                    // Timeout - treat as unhealthy
+                    if retries_remaining == 0 {
+                        return Err((
+                            self,
+                            DeployError::HealthCheckFailed(
+                                "healthcheck timeout after retries exhausted".to_string(),
+                            ),
+                        ));
+                    }
+                    retries_remaining -= 1;
                 }
             }
 
@@ -386,11 +424,18 @@ impl Deployment<HealthChecked> {
                 .await;
         }
 
-        // Connect new container to network with the service alias
-        // (it should already be connected, but we add the alias)
-        runtime
+        // Connect new container to network with the service alias.
+        // The container may already be connected (created with network set),
+        // so ignore "already connected" errors.
+        if let Err(e) = runtime
             .connect_to_network(new_container_id, network_id, &[alias])
-            .await?;
+            .await
+        {
+            let err_str = e.to_string().to_lowercase();
+            if !err_str.contains("already connected") {
+                return Err(DeployError::NetworkFailed(e.to_string()));
+            }
+        }
 
         Ok(self.transition())
     }

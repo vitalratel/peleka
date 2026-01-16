@@ -4,6 +4,9 @@
 
 set -e
 
+# Force Docker to use Unix socket (not TCP)
+export DOCKER_HOST=unix:///var/run/docker.sock
+
 # Setup authorized key if provided
 if [ -n "$AUTHORIZED_KEY" ]; then
     echo "$AUTHORIZED_KEY" > /home/testuser/.ssh/authorized_keys

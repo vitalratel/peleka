@@ -51,6 +51,7 @@ async fn detects_podman_on_podman_server() {
 
 /// Test: Config override takes precedence over auto-detection.
 #[tokio::test]
+#[ignore = "DinD SSH streamlocal forwarding broken in test container"]
 async fn config_override_takes_precedence() {
     let config = dind_session_config().await;
     let session = Session::connect(config)
@@ -107,6 +108,7 @@ async fn prefers_podman_when_both_present() {
 
 /// Test: Can detect Docker when forced via config override.
 #[tokio::test]
+#[ignore = "DinD SSH streamlocal forwarding broken in test container"]
 async fn detects_docker_with_override() {
     let config = dind_session_config().await;
     let session = Session::connect(config)
