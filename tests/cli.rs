@@ -236,3 +236,52 @@ servers:
         .success()
         .stdout(predicate::str::contains("stats=true"));
 }
+
+#[test]
+fn deploy_requires_config_file() {
+    let temp_dir = tempfile::tempdir().unwrap();
+
+    peleka_cmd()
+        .current_dir(temp_dir.path())
+        .arg("deploy")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("configuration file not found"));
+}
+
+#[test]
+fn deploy_fails_with_no_servers() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_content = r#"
+service: myapp
+image: ghcr.io/example/myapp:latest
+servers: []
+"#;
+    fs::write(temp_dir.path().join("peleka.yml"), config_content).unwrap();
+
+    peleka_cmd()
+        .current_dir(temp_dir.path())
+        .arg("deploy")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no servers configured"));
+}
+
+#[test]
+fn deploy_fails_with_unknown_destination() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    let config_content = r#"
+service: myapp
+image: ghcr.io/example/myapp:latest
+servers:
+  - host: server1.example.com
+"#;
+    fs::write(temp_dir.path().join("peleka.yml"), config_content).unwrap();
+
+    peleka_cmd()
+        .current_dir(temp_dir.path())
+        .args(["deploy", "--destination", "nonexistent"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown destination"));
+}

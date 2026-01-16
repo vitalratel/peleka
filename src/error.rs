@@ -26,6 +26,18 @@ pub enum Error {
 
     #[error("YAML parse error: {0}")]
     Yaml(#[from] serde_yaml::Error),
+
+    #[error("SSH error: {0}")]
+    Ssh(String),
+
+    #[error("runtime detection failed: {0}")]
+    RuntimeDetection(String),
+
+    #[error("deployment failed: {0}")]
+    Deploy(String),
+
+    #[error("no servers configured")]
+    NoServers,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

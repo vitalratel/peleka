@@ -709,42 +709,59 @@ impl ContainerOps for BollardRuntime {
 
         let opts = ListContainersOptions {
             all: filters.all,
-            filters: Some(filter_map),
+            filters: Some(filter_map.clone()),
             ..Default::default()
         };
 
-        let containers = self
-            .client
-            .list_containers(Some(opts))
-            .await
-            .map_err(|e| ContainerError::Runtime(e.to_string()))?;
+        // Podman reports "stopping" as a container state during shutdown, but bollard
+        // doesn't recognize it and fails deserialization. Retry after a short delay
+        // since "stopping" is a transient state.
+        let mut last_error = None;
+        for attempt in 0..3 {
+            match self.client.list_containers(Some(opts.clone())).await {
+                Ok(containers) => {
+                    return Ok(containers
+                        .into_iter()
+                        .map(|c| {
+                            let id = c.id.unwrap_or_default();
+                            let names = c.names.unwrap_or_default();
+                            let name = names
+                                .first()
+                                .map(|n| n.trim_start_matches('/').to_string())
+                                .unwrap_or_default();
 
-        Ok(containers
-            .into_iter()
-            .map(|c| {
-                let id = c.id.unwrap_or_default();
-                let names = c.names.unwrap_or_default();
-                let name = names
-                    .first()
-                    .map(|n| n.trim_start_matches('/').to_string())
-                    .unwrap_or_default();
+                            let state_str = c
+                                .state
+                                .map(|s| format!("{:?}", s).to_lowercase())
+                                .unwrap_or_default();
 
-                // Convert state enum to string
-                let state_str = c
-                    .state
-                    .map(|s| format!("{:?}", s).to_lowercase())
-                    .unwrap_or_default();
-
-                ContainerSummary {
-                    id: ContainerId::new(id),
-                    name,
-                    image: c.image.unwrap_or_default(),
-                    state: state_str,
-                    status: c.status.unwrap_or_default(),
-                    labels: c.labels.unwrap_or_default(),
+                            ContainerSummary {
+                                id: ContainerId::new(id),
+                                name,
+                                image: c.image.unwrap_or_default(),
+                                state: state_str,
+                                status: c.status.unwrap_or_default(),
+                                labels: c.labels.unwrap_or_default(),
+                            }
+                        })
+                        .collect());
                 }
-            })
-            .collect())
+                Err(e) => {
+                    let err_str = e.to_string();
+                    // Podman's "stopping" state causes deserialization failure
+                    if err_str.contains("unknown variant `stopping`") && attempt < 2 {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        last_error = Some(err_str);
+                        continue;
+                    }
+                    return Err(ContainerError::Runtime(err_str));
+                }
+            }
+        }
+
+        Err(ContainerError::Runtime(
+            last_error.unwrap_or_else(|| "list_containers failed".to_string()),
+        ))
     }
 
     async fn rename_container(
