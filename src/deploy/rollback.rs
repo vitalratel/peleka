@@ -56,19 +56,20 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
         DeployError::RollbackFailed("no running container found for service".to_string())
     })?;
 
-    let previous = stopped.into_iter().next().ok_or_else(|| {
-        DeployError::NoPreviousDeployment(service.to_string())
-    })?;
+    let previous = stopped
+        .into_iter()
+        .next()
+        .ok_or_else(|| DeployError::NoPreviousDeployment(service.to_string()))?;
 
     // Start the previous container
-    runtime
-        .start_container(&previous.id)
-        .await
-        .map_err(|e| DeployError::RollbackFailed(format!("failed to start previous container: {}", e)))?;
+    runtime.start_container(&previous.id).await.map_err(|e| {
+        DeployError::RollbackFailed(format!("failed to start previous container: {}", e))
+    })?;
 
     // Get the service alias
-    let alias = NetworkAlias::new(service.as_str())
-        .map_err(|e| DeployError::RollbackFailed(format!("invalid service name for alias: {}", e)))?;
+    let alias = NetworkAlias::new(service.as_str()).map_err(|e| {
+        DeployError::RollbackFailed(format!("invalid service name for alias: {}", e))
+    })?;
 
     // Disconnect active container from network
     let _ = runtime
@@ -93,7 +94,9 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
     runtime
         .stop_container(&active.id, Duration::from_secs(10))
         .await
-        .map_err(|e| DeployError::RollbackFailed(format!("failed to stop active container: {}", e)))?;
+        .map_err(|e| {
+            DeployError::RollbackFailed(format!("failed to stop active container: {}", e))
+        })?;
 
     Ok(())
 }

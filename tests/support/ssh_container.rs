@@ -1,18 +1,20 @@
 // ABOUTME: SSH container helper for integration tests.
-// ABOUTME: Uses bollard to manage a shared SSH server container.
+// ABOUTME: Builds from local Dockerfile using Gitea registry to avoid Docker Hub rate limits.
 
 use bollard::Docker;
 use bollard::models::ContainerCreateBody;
 use bollard::query_parameters::{
-    CreateContainerOptions, CreateImageOptions, RemoveContainerOptions, StopContainerOptions,
+    BuildImageOptions, CreateContainerOptions, RemoveContainerOptions, StopContainerOptions,
 };
+use bytes::Bytes;
 use futures::StreamExt;
+use http_body_util::{Either, Full};
 use peleka::ssh::SessionConfig;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
-const IMAGE: &str = "lscr.io/linuxserver/openssh-server:latest";
-const SSH_PORT: u16 = 2222;
+const IMAGE_NAME: &str = "peleka-ssh-only:test";
+const SSH_PORT: u16 = 22;
 const TEST_USER: &str = "testuser";
 
 /// Container info needed for cleanup.
@@ -76,22 +78,12 @@ impl SshContainer {
     async fn start() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let docker = Docker::connect_with_local_defaults()?;
 
+        // Build the SSH image
+        Self::build_image(&docker).await?;
+
         // Read public key
         let key_path = Self::test_key_path();
         let public_key = std::fs::read_to_string(format!("{}.pub", key_path))?;
-
-        // Pull image if needed
-        let mut pull_stream = docker.create_image(
-            Some(CreateImageOptions {
-                from_image: Some(IMAGE.to_string()),
-                ..Default::default()
-            }),
-            None,
-            None,
-        );
-        while let Some(result) = pull_stream.next().await {
-            result?;
-        }
 
         // Find an available port
         let port = Self::find_available_port().await?;
@@ -99,10 +91,7 @@ impl SshContainer {
         // Create container
         let container_name = format!("peleka-ssh-test-{}", std::process::id());
         let mut env = Vec::new();
-        env.push("PUID=1000".to_string());
-        env.push("PGID=1000".to_string());
-        env.push(format!("USER_NAME={}", TEST_USER));
-        env.push(format!("PUBLIC_KEY={}", public_key.trim()));
+        env.push(format!("AUTHORIZED_KEY={}", public_key.trim()));
 
         let mut port_bindings = HashMap::new();
         port_bindings.insert(
@@ -119,7 +108,7 @@ impl SshContainer {
         };
 
         let config = ContainerCreateBody {
-            image: Some(IMAGE.to_string()),
+            image: Some(IMAGE_NAME.to_string()),
             env: Some(env),
             host_config: Some(host_config),
             ..Default::default()
@@ -199,5 +188,72 @@ impl SshContainer {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         }
         Err("SSH container did not become ready in time".into())
+    }
+
+    /// Build the SSH image if not present.
+    async fn build_image(docker: &Docker) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Check if image exists
+        if docker.inspect_image(IMAGE_NAME).await.is_ok() {
+            return Ok(());
+        }
+
+        eprintln!("Building SSH-only image...");
+
+        let dockerfile_dir = format!("{}/tests/fixtures/ssh-only", env!("CARGO_MANIFEST_DIR"));
+
+        // Create tar archive of build context
+        let tar_data = Self::create_build_context(&dockerfile_dir)?;
+
+        let options = BuildImageOptions {
+            dockerfile: "Dockerfile".to_string(),
+            t: Some(IMAGE_NAME.to_string()),
+            ..Default::default()
+        };
+
+        let body = Either::Left(Full::new(Bytes::from(tar_data)));
+        let mut build_stream = docker.build_image(options, None, Some(body));
+
+        while let Some(result) = build_stream.next().await {
+            match result {
+                Ok(output) => {
+                    if let Some(error_detail) = output.error_detail {
+                        return Err(format!("Build error: {:?}", error_detail).into());
+                    }
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+
+        eprintln!("SSH-only image built successfully");
+        Ok(())
+    }
+
+    /// Create a tar archive of the build context.
+    fn create_build_context(
+        dir: &str,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+        let mut ar = tar::Builder::new(Vec::new());
+
+        // Add Dockerfile
+        let dockerfile_path = format!("{}/Dockerfile", dir);
+        let dockerfile_content = std::fs::read(&dockerfile_path)?;
+        let mut header = tar::Header::new_gnu();
+        header.set_path("Dockerfile")?;
+        header.set_size(dockerfile_content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        ar.append(&header, dockerfile_content.as_slice())?;
+
+        // Add entrypoint.sh
+        let entrypoint_path = format!("{}/entrypoint.sh", dir);
+        let entrypoint_content = std::fs::read(&entrypoint_path)?;
+        let mut header = tar::Header::new_gnu();
+        header.set_path("entrypoint.sh")?;
+        header.set_size(entrypoint_content.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        ar.append(&header, entrypoint_content.as_slice())?;
+
+        ar.into_inner().map_err(Into::into)
     }
 }

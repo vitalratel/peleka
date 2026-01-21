@@ -105,7 +105,11 @@ async fn first_deployment_creates_blue_container() {
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("test-blue").unwrap();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
 
     let deployment = Deployment::new(deploy_config);
 
@@ -173,7 +177,11 @@ async fn detect_orphans_finds_unknown_containers() {
     let mut deploy_config = Config::template();
     deploy_config.service = service_name.clone();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
 
     let deployment = Deployment::new(deploy_config);
 

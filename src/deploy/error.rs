@@ -1,6 +1,8 @@
 // ABOUTME: Error types for deployment operations.
 // ABOUTME: Covers image pull, container, network, and health check failures.
 
+use chrono::{DateTime, Utc};
+
 use crate::runtime::{ContainerError, ImageError, NetworkError};
 
 /// Errors that can occur during deployment state transitions.
@@ -57,6 +59,18 @@ pub enum DeployError {
     /// Configuration error.
     #[error("configuration error: {0}")]
     ConfigError(String),
+
+    /// Lock is held by another process.
+    #[error("deployment locked by {holder} (pid {pid}) since {started_at}")]
+    LockHeld {
+        holder: String,
+        pid: u32,
+        started_at: DateTime<Utc>,
+    },
+
+    /// Lock operation failed.
+    #[error("lock error: {0}")]
+    LockError(String),
 }
 
 impl From<ImageError> for DeployError {

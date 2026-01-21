@@ -32,7 +32,11 @@ async fn health_check_passes() {
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("health-test-pass").unwrap();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "true".to_string(),
         interval: Duration::from_secs(1),
@@ -85,7 +89,11 @@ async fn health_check_fails_and_rollback() {
     let mut deploy_config = Config::template();
     deploy_config.service = peleka::types::ServiceName::new("health-test-fail").unwrap();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "false".to_string(),
         interval: Duration::from_secs(1),

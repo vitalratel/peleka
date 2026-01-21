@@ -38,6 +38,10 @@ pub enum Commands {
         /// Target destination (defined in config)
         #[arg(short, long)]
         destination: Option<String>,
+
+        /// Break existing deploy lock if held
+        #[arg(long)]
+        force: bool,
     },
 
     /// Rollback to the previous deployment

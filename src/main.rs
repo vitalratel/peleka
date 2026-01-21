@@ -6,7 +6,7 @@ mod cli;
 use clap::Parser;
 use cli::{Cli, Commands};
 use peleka::config::{self, Config, ServerConfig};
-use peleka::deploy::{Deployment, Initialized, manual_rollback};
+use peleka::deploy::{DeployLock, Deployment, Initialized, manual_rollback};
 use peleka::error::{Error, Result};
 use peleka::runtime::{
     BollardRuntime, ContainerFilters, ContainerOps, connect_via_session, detect_runtime,
@@ -50,7 +50,7 @@ async fn run(cli: Cli) -> Result<()> {
             let cwd = env::current_dir().expect("Failed to get current directory");
             config::init_config(&cwd, service.as_deref(), image.as_deref(), force)
         }
-        Commands::Deploy { destination } => {
+        Commands::Deploy { destination, force } => {
             let cwd = env::current_dir().expect("Failed to get current directory");
             let config = Config::discover(&cwd)?;
 
@@ -61,7 +61,7 @@ async fn run(cli: Cli) -> Result<()> {
                 config
             };
 
-            deploy(config).await
+            deploy(config, force).await
         }
         Commands::Rollback { destination } => {
             let cwd = env::current_dir().expect("Failed to get current directory");
@@ -105,7 +105,7 @@ async fn run(cli: Cli) -> Result<()> {
 }
 
 /// Deploy to all configured servers.
-async fn deploy(config: Config) -> Result<()> {
+async fn deploy(config: Config, force: bool) -> Result<()> {
     if config.servers.is_empty() {
         return Err(Error::NoServers);
     }
@@ -118,7 +118,7 @@ async fn deploy(config: Config) -> Result<()> {
     );
 
     for server in &config.servers {
-        if let Err(e) = deploy_to_server(&config, server).await {
+        if let Err(e) = deploy_to_server(&config, server, force).await {
             eprintln!("Failed to deploy to {}: {}", server.host, e);
             return Err(e);
         }
@@ -211,7 +211,7 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()
 }
 
 /// Deploy to a single server.
-async fn deploy_to_server(config: &Config, server: &ServerConfig) -> Result<()> {
+async fn deploy_to_server(config: &Config, server: &ServerConfig, force: bool) -> Result<()> {
     println!("  → Connecting to {}...", server.host);
 
     // Create SSH session
@@ -224,13 +224,42 @@ async fn deploy_to_server(config: &Config, server: &ServerConfig) -> Result<()> 
         .port(server.port)
         .trust_on_first_use(true); // TODO: Make configurable
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
+    // Acquire deploy lock
+    println!("  → Acquiring deploy lock...");
+    let lock = DeployLock::acquire(&session, &config.service, force)
+        .await
+        .map_err(|e| Error::Deploy(e.to_string()))?;
+
+    // Run deployment with lock, ensuring cleanup on error
+    let result = deploy_to_server_inner(config, server, &session).await;
+
+    // Release lock (always, even on error)
+    lock.release()
+        .await
+        .map_err(|e| Error::Deploy(e.to_string()))?;
+
+    // Disconnect SSH session
+    session
+        .disconnect()
+        .await
+        .map_err(|e| Error::Ssh(e.to_string()))?;
+
+    result
+}
+
+/// Inner deployment logic (runs while holding lock).
+async fn deploy_to_server_inner(
+    config: &Config,
+    server: &ServerConfig,
+    session: &Session,
+) -> Result<()> {
     // Detect runtime
     println!("  → Detecting runtime...");
-    let runtime_info = detect_runtime(&session, Some(&server.runtime_config()))
+    let runtime_info = detect_runtime(session, Some(&server.runtime_config()))
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
@@ -240,7 +269,23 @@ async fn deploy_to_server(config: &Config, server: &ServerConfig) -> Result<()> 
     );
 
     // Connect to runtime via SSH tunnel
-    let runtime = connect_via_session(&mut session, runtime_info.runtime_type)
+    // Note: We need a mutable reference for the tunnel, but session is borrowed immutably
+    // This is a limitation - we need to restructure to avoid this
+    // For now, create a new session for the tunnel
+    let user = server
+        .user
+        .clone()
+        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
+
+    let ssh_config = SessionConfig::new(&server.host, &user)
+        .port(server.port)
+        .trust_on_first_use(true);
+
+    let mut tunnel_session = Session::connect(ssh_config)
+        .await
+        .map_err(|e| Error::Ssh(e.to_string()))?;
+
+    let runtime = connect_via_session(&mut tunnel_session, runtime_info.runtime_type)
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
@@ -263,8 +308,8 @@ async fn deploy_to_server(config: &Config, server: &ServerConfig) -> Result<()> 
     // Run deployment state machine
     run_deployment(deployment, &runtime).await?;
 
-    // Disconnect SSH session
-    session
+    // Disconnect tunnel session
+    tunnel_session
         .disconnect()
         .await
         .map_err(|e| Error::Ssh(e.to_string()))?;

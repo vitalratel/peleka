@@ -22,7 +22,10 @@ async fn podman_session_config() -> SessionConfig {
 async fn find_service_containers(
     runtime: &peleka::runtime::BollardRuntime,
     service: &str,
-) -> (Vec<peleka::types::ContainerId>, Vec<peleka::types::ContainerId>) {
+) -> (
+    Vec<peleka::types::ContainerId>,
+    Vec<peleka::types::ContainerId>,
+) {
     let mut labels = HashMap::new();
     labels.insert("peleka.service".to_string(), service.to_string());
     labels.insert("peleka.managed".to_string(), "true".to_string());
@@ -35,9 +38,8 @@ async fn find_service_containers(
 
     let containers = runtime.list_containers(&filters).await.unwrap_or_default();
 
-    let (running, stopped): (Vec<_>, Vec<_>) = containers
-        .into_iter()
-        .partition(|c| c.state == "running");
+    let (running, stopped): (Vec<_>, Vec<_>) =
+        containers.into_iter().partition(|c| c.state == "running");
 
     (
         running.into_iter().map(|c| c.id).collect(),
@@ -64,7 +66,11 @@ async fn manual_rollback_swaps_containers() {
     let mut deploy_config = Config::template();
     deploy_config.service = service_name.clone();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
     deploy_config.cleanup = Some(peleka::config::CleanupConfig {
         grace_period: Duration::from_secs(0),
     });
@@ -79,27 +85,60 @@ async fn manual_rollback_swaps_containers() {
 
     // First deployment - creates "active" container
     let d1 = Deployment::new(deploy_config.clone());
-    let network_id = d1.ensure_network(&runtime).await.expect("network should work");
-    let d2 = d1.pull_image(&runtime, None).await.expect("pull should succeed");
-    let d3 = d2.start_container(&runtime).await.expect("start should succeed");
-    let d4 = d3.health_check(&runtime, Duration::from_secs(5)).await.expect("health check should pass");
-    let d5 = d4.cutover(&runtime, &network_id).await.expect("cutover should succeed");
+    let network_id = d1
+        .ensure_network(&runtime)
+        .await
+        .expect("network should work");
+    let d2 = d1
+        .pull_image(&runtime, None)
+        .await
+        .expect("pull should succeed");
+    let d3 = d2
+        .start_container(&runtime)
+        .await
+        .expect("start should succeed");
+    let d4 = d3
+        .health_check(&runtime, Duration::from_secs(5))
+        .await
+        .expect("health check should pass");
+    let d5 = d4
+        .cutover(&runtime, &network_id)
+        .await
+        .expect("cutover should succeed");
     let d6 = d5.cleanup(&runtime).await.expect("cleanup should succeed");
     let first_container_id = d6.deployed_container().clone();
 
     // Second deployment - first becomes stopped (previous), second becomes running (active)
     let d1 = Deployment::new_update(deploy_config.clone(), first_container_id.clone());
-    let d2 = d1.pull_image(&runtime, None).await.expect("pull should succeed");
-    let d3 = d2.start_container(&runtime).await.expect("start should succeed");
-    let d4 = d3.health_check(&runtime, Duration::from_secs(5)).await.expect("health check should pass");
-    let d5 = d4.cutover(&runtime, &network_id).await.expect("cutover should succeed");
+    let d2 = d1
+        .pull_image(&runtime, None)
+        .await
+        .expect("pull should succeed");
+    let d3 = d2
+        .start_container(&runtime)
+        .await
+        .expect("start should succeed");
+    let d4 = d3
+        .health_check(&runtime, Duration::from_secs(5))
+        .await
+        .expect("health check should pass");
+    let d5 = d4
+        .cutover(&runtime, &network_id)
+        .await
+        .expect("cutover should succeed");
     let d6 = d5.cleanup(&runtime).await.expect("cleanup should succeed");
     let second_container_id = d6.deployed_container().clone();
 
     // Verify: second is running (active), first is stopped (previous)
     let (running, stopped) = find_service_containers(&runtime, "test-rollback-swap").await;
-    assert!(running.contains(&second_container_id), "second should be running (active)");
-    assert!(stopped.contains(&first_container_id), "first should be stopped (previous)");
+    assert!(
+        running.contains(&second_container_id),
+        "second should be running (active)"
+    );
+    assert!(
+        stopped.contains(&first_container_id),
+        "first should be stopped (previous)"
+    );
 
     // Manual rollback
     manual_rollback(&runtime, &service_name, &network_id)
@@ -107,17 +146,29 @@ async fn manual_rollback_swaps_containers() {
         .expect("rollback should succeed");
 
     // Verify: first is now running (active), second is now stopped (previous)
-    let (running_after, stopped_after) = find_service_containers(&runtime, "test-rollback-swap").await;
-    assert!(running_after.contains(&first_container_id), "first should be running after rollback");
-    assert!(stopped_after.contains(&second_container_id), "second should be stopped after rollback");
+    let (running_after, stopped_after) =
+        find_service_containers(&runtime, "test-rollback-swap").await;
+    assert!(
+        running_after.contains(&first_container_id),
+        "first should be running after rollback"
+    );
+    assert!(
+        stopped_after.contains(&second_container_id),
+        "second should be stopped after rollback"
+    );
 
     // Clean up
-    let _ = runtime.stop_container(&first_container_id, Duration::from_secs(5)).await;
+    let _ = runtime
+        .stop_container(&first_container_id, Duration::from_secs(5))
+        .await;
     let _ = runtime.remove_container(&first_container_id, true).await;
     let _ = runtime.remove_container(&second_container_id, true).await;
     let _ = runtime.remove_network(&network_id).await;
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: Rollback fails if no previous container exists.
@@ -139,7 +190,11 @@ async fn rollback_fails_without_previous() {
     let mut deploy_config = Config::template();
     deploy_config.service = service_name.clone();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
     deploy_config.network = Some(peleka::config::NetworkConfig {
         name: "peleka-test-rollback-no-prev".to_string(),
         aliases: vec![],
@@ -150,24 +205,47 @@ async fn rollback_fails_without_previous() {
     });
 
     let d1 = Deployment::new(deploy_config.clone());
-    let network_id = d1.ensure_network(&runtime).await.expect("network should work");
-    let d2 = d1.pull_image(&runtime, None).await.expect("pull should succeed");
-    let d3 = d2.start_container(&runtime).await.expect("start should succeed");
-    let d4 = d3.health_check(&runtime, Duration::from_secs(5)).await.expect("health check should pass");
-    let d5 = d4.cutover(&runtime, &network_id).await.expect("cutover should succeed");
+    let network_id = d1
+        .ensure_network(&runtime)
+        .await
+        .expect("network should work");
+    let d2 = d1
+        .pull_image(&runtime, None)
+        .await
+        .expect("pull should succeed");
+    let d3 = d2
+        .start_container(&runtime)
+        .await
+        .expect("start should succeed");
+    let d4 = d3
+        .health_check(&runtime, Duration::from_secs(5))
+        .await
+        .expect("health check should pass");
+    let d5 = d4
+        .cutover(&runtime, &network_id)
+        .await
+        .expect("cutover should succeed");
     let d6 = d5.cleanup(&runtime).await.expect("cleanup should succeed");
     let container_id = d6.deployed_container().clone();
 
     // Try rollback - should fail
     let result = manual_rollback(&runtime, &service_name, &network_id).await;
-    assert!(result.is_err(), "rollback should fail without previous container");
+    assert!(
+        result.is_err(),
+        "rollback should fail without previous container"
+    );
 
     // Clean up
-    let _ = runtime.stop_container(&container_id, Duration::from_secs(5)).await;
+    let _ = runtime
+        .stop_container(&container_id, Duration::from_secs(5))
+        .await;
     let _ = runtime.remove_container(&container_id, true).await;
     let _ = runtime.remove_network(&network_id).await;
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
 
 /// Test: Double rollback swaps back (ping-pong).
@@ -189,7 +267,11 @@ async fn double_rollback_swaps_back() {
     let mut deploy_config = Config::template();
     deploy_config.service = service_name.clone();
     deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec!["sh".to_string(), "-c".to_string(), "sleep infinity".to_string()]);
+    deploy_config.command = Some(vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        "sleep infinity".to_string(),
+    ]);
     deploy_config.cleanup = Some(peleka::config::CleanupConfig {
         grace_period: Duration::from_secs(0),
     });
@@ -204,20 +286,47 @@ async fn double_rollback_swaps_back() {
 
     // First deployment
     let d1 = Deployment::new(deploy_config.clone());
-    let network_id = d1.ensure_network(&runtime).await.expect("network should work");
-    let d2 = d1.pull_image(&runtime, None).await.expect("pull should succeed");
-    let d3 = d2.start_container(&runtime).await.expect("start should succeed");
-    let d4 = d3.health_check(&runtime, Duration::from_secs(5)).await.expect("health check should pass");
-    let d5 = d4.cutover(&runtime, &network_id).await.expect("cutover should succeed");
+    let network_id = d1
+        .ensure_network(&runtime)
+        .await
+        .expect("network should work");
+    let d2 = d1
+        .pull_image(&runtime, None)
+        .await
+        .expect("pull should succeed");
+    let d3 = d2
+        .start_container(&runtime)
+        .await
+        .expect("start should succeed");
+    let d4 = d3
+        .health_check(&runtime, Duration::from_secs(5))
+        .await
+        .expect("health check should pass");
+    let d5 = d4
+        .cutover(&runtime, &network_id)
+        .await
+        .expect("cutover should succeed");
     let d6 = d5.cleanup(&runtime).await.expect("cleanup should succeed");
     let first_container_id = d6.deployed_container().clone();
 
     // Second deployment
     let d1 = Deployment::new_update(deploy_config.clone(), first_container_id.clone());
-    let d2 = d1.pull_image(&runtime, None).await.expect("pull should succeed");
-    let d3 = d2.start_container(&runtime).await.expect("start should succeed");
-    let d4 = d3.health_check(&runtime, Duration::from_secs(5)).await.expect("health check should pass");
-    let d5 = d4.cutover(&runtime, &network_id).await.expect("cutover should succeed");
+    let d2 = d1
+        .pull_image(&runtime, None)
+        .await
+        .expect("pull should succeed");
+    let d3 = d2
+        .start_container(&runtime)
+        .await
+        .expect("start should succeed");
+    let d4 = d3
+        .health_check(&runtime, Duration::from_secs(5))
+        .await
+        .expect("health check should pass");
+    let d5 = d4
+        .cutover(&runtime, &network_id)
+        .await
+        .expect("cutover should succeed");
     let d6 = d5.cleanup(&runtime).await.expect("cleanup should succeed");
     let second_container_id = d6.deployed_container().clone();
 
@@ -233,14 +342,25 @@ async fn double_rollback_swaps_back() {
 
     // Verify: back to original state (second running, first stopped)
     let (running, stopped) = find_service_containers(&runtime, "test-rollback-pingpong").await;
-    assert!(running.contains(&second_container_id), "second should be running after double rollback");
-    assert!(stopped.contains(&first_container_id), "first should be stopped after double rollback");
+    assert!(
+        running.contains(&second_container_id),
+        "second should be running after double rollback"
+    );
+    assert!(
+        stopped.contains(&first_container_id),
+        "first should be stopped after double rollback"
+    );
 
     // Clean up
-    let _ = runtime.stop_container(&second_container_id, Duration::from_secs(5)).await;
+    let _ = runtime
+        .stop_container(&second_container_id, Duration::from_secs(5))
+        .await;
     let _ = runtime.remove_container(&first_container_id, true).await;
     let _ = runtime.remove_container(&second_container_id, true).await;
     let _ = runtime.remove_network(&network_id).await;
 
-    session.disconnect().await.expect("disconnect should succeed");
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
 }
