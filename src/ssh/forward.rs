@@ -24,8 +24,9 @@ pub struct ForwardHandle {
 
 impl ForwardHandle {
     /// Get the local socket path as a string.
-    pub fn path(&self) -> &str {
-        self.local_path.to_str().unwrap_or("")
+    /// Returns None if the path is not valid UTF-8.
+    pub fn path(&self) -> Option<&str> {
+        self.local_path.to_str()
     }
 
     /// Stop the forwarder and clean up the socket.

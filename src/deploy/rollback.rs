@@ -1,7 +1,6 @@
 // ABOUTME: Manual rollback functionality for restoring previous deployments.
 // ABOUTME: Swaps active and previous containers for a service.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::runtime::{ContainerFilters, ContainerOps, NetworkOps};
@@ -33,15 +32,7 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
     network_id: &NetworkId,
 ) -> Result<(), DeployError> {
     // Find all containers for this service
-    let mut labels = HashMap::new();
-    labels.insert("peleka.service".to_string(), service.to_string());
-    labels.insert("peleka.managed".to_string(), "true".to_string());
-
-    let filters = ContainerFilters {
-        labels,
-        all: true, // Include stopped containers
-        ..Default::default()
-    };
+    let filters = ContainerFilters::for_service(service, true);
 
     let containers = runtime
         .list_containers(&filters)

@@ -79,13 +79,13 @@ impl<'a> DeployLock<'a> {
         {
             // Read existing lock info
             let output = session
-                .exec(&format!("cat {}", lock_path))
+                .exec(&format!("cat '{}'", lock_path))
                 .await
                 .map_err(|e| DeployError::LockError(format!("failed to read lock file: {}", e)))?;
 
-            if output.success()
-                && let Ok(existing_lock) = serde_json::from_str::<LockInfo>(&output.stdout)
-            {
+            if !output.success() {
+                tracing::warn!("Failed to read lock file, attempting to acquire anyway");
+            } else if let Ok(existing_lock) = serde_json::from_str::<LockInfo>(&output.stdout) {
                 if force {
                     // Force break the lock
                     tracing::warn!(
@@ -110,6 +110,9 @@ impl<'a> DeployLock<'a> {
                         started_at: existing_lock.started_at,
                     });
                 }
+            } else {
+                // Lock file exists but couldn't parse JSON - corrupted, break it
+                tracing::warn!("Lock file corrupted, breaking it");
             }
         }
 
@@ -121,7 +124,7 @@ impl<'a> DeployLock<'a> {
         // Write lock file atomically (write to temp then rename)
         let temp_path = format!("{}.tmp.{}", lock_path, std::process::id());
         let write_cmd = format!(
-            "echo '{}' > {} && mv {} {}",
+            "echo '{}' > '{}' && mv '{}' '{}'",
             lock_json.replace('\'', "'\\''"),
             temp_path,
             temp_path,
@@ -149,7 +152,7 @@ impl<'a> DeployLock<'a> {
     /// Release the lock.
     pub async fn release(self) -> Result<(), DeployError> {
         let lock_path = LockInfo::lock_path(&self.service);
-        let _ = self.session.exec(&format!("rm -f {}", lock_path)).await;
+        let _ = self.session.exec(&format!("rm -f '{}'", lock_path)).await;
         Ok(())
     }
 }

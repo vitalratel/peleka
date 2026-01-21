@@ -25,15 +25,7 @@ pub async fn detect_orphans<R: ContainerOps>(
     service: &ServiceName,
     known_containers: &[ContainerId],
 ) -> Result<Vec<ContainerSummary>, crate::runtime::ContainerError> {
-    let mut labels = std::collections::HashMap::new();
-    labels.insert("peleka.service".to_string(), service.to_string());
-    labels.insert("peleka.managed".to_string(), "true".to_string());
-
-    let filters = ContainerFilters {
-        labels,
-        all: true, // Include stopped containers
-        ..Default::default()
-    };
+    let filters = ContainerFilters::for_service(service, true);
 
     let containers = runtime.list_containers(&filters).await?;
 

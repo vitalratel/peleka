@@ -15,7 +15,6 @@ use peleka::runtime::{
     detect_runtime,
 };
 use peleka::ssh::{Session, SessionConfig};
-use std::collections::HashMap;
 use std::env;
 use tracing_subscriber::EnvFilter;
 
@@ -125,18 +124,9 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     ));
 
     // Run pre-deploy hook for each server
+    // TODO: Could detect previous_version from running container
     for server in &config.servers {
-        let hook_context = HookContext {
-            service: config.service.clone(),
-            image: config.image.to_string(),
-            server: server.host.clone(),
-            runtime: server
-                .runtime
-                .as_ref()
-                .map(|r| r.to_string())
-                .unwrap_or_else(|| "auto".to_string()),
-            previous_version: None, // TODO: Could detect from running container
-        };
+        let hook_context = HookContext::new(&config, server);
 
         if let Some(result) = hook_runner.run(HookPoint::PreDeploy, &hook_context).await
             && !result.success
@@ -156,17 +146,7 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
             eprintln!("Failed to deploy to {}: {}", server.host, e);
 
             // Run on-error hook
-            let hook_context = HookContext {
-                service: config.service.clone(),
-                image: config.image.to_string(),
-                server: server.host.clone(),
-                runtime: server
-                    .runtime
-                    .as_ref()
-                    .map(|r| r.to_string())
-                    .unwrap_or_else(|| "auto".to_string()),
-                previous_version: None,
-            };
+            let hook_context = HookContext::new(&config, server);
 
             if let Some(result) = hook_runner.run(HookPoint::OnError, &hook_context).await
                 && !result.success
@@ -185,17 +165,7 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
 
     // Run post-deploy hook for each server
     for server in &config.servers {
-        let hook_context = HookContext {
-            service: config.service.clone(),
-            image: config.image.to_string(),
-            server: server.host.clone(),
-            runtime: server
-                .runtime
-                .as_ref()
-                .map(|r| r.to_string())
-                .unwrap_or_else(|| "auto".to_string()),
-            previous_version: None,
-        };
+        let hook_context = HookContext::new(&config, server);
 
         if let Some(result) = hook_runner.run(HookPoint::PostDeploy, &hook_context).await
             && !result.success
@@ -254,12 +224,7 @@ async fn exec_on_server(
     output.progress(&format!("  → Connecting to {}...", server.host));
 
     // Create SSH session
-    let user = server
-        .user
-        .clone()
-        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
-
-    let ssh_config = SessionConfig::new(&server.host, &user)
+    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
         .port(server.port)
         .trust_on_first_use(server.trust_first_connection);
 
@@ -341,12 +306,7 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Out
     output.progress(&format!("  → Connecting to {}...", server.host));
 
     // Create SSH session
-    let user = server
-        .user
-        .clone()
-        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
-
-    let ssh_config = SessionConfig::new(&server.host, &user)
+    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
         .port(server.port)
         .trust_on_first_use(server.trust_first_connection);
 
@@ -405,12 +365,7 @@ async fn deploy_to_server(
     output.progress(&format!("  → Connecting to {}...", server.host));
 
     // Create SSH session
-    let user = server
-        .user
-        .clone()
-        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
-
-    let ssh_config = SessionConfig::new(&server.host, &user)
+    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
         .port(server.port)
         .trust_on_first_use(server.trust_first_connection);
 
@@ -463,12 +418,7 @@ async fn deploy_to_server_inner(
     // Note: We need a mutable reference for the tunnel, but session is borrowed immutably
     // This is a limitation - we need to restructure to avoid this
     // For now, create a new session for the tunnel
-    let user = server
-        .user
-        .clone()
-        .unwrap_or_else(|| env::var("USER").unwrap_or_else(|_| "root".to_string()));
-
-    let ssh_config = SessionConfig::new(&server.host, &user)
+    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
         .port(server.port)
         .trust_on_first_use(server.trust_first_connection);
 
@@ -513,15 +463,7 @@ async fn find_existing_container(
     runtime: &BollardRuntime,
     service: &peleka::types::ServiceName,
 ) -> Result<Option<peleka::types::ContainerId>> {
-    let mut labels = HashMap::new();
-    labels.insert("peleka.service".to_string(), service.to_string());
-    labels.insert("peleka.managed".to_string(), "true".to_string());
-
-    let filters = ContainerFilters {
-        labels,
-        all: false, // Only running containers
-        ..Default::default()
-    };
+    let filters = ContainerFilters::for_service(service, false);
 
     let containers = runtime
         .list_containers(&filters)

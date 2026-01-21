@@ -3,7 +3,7 @@
 
 use super::sealed::Sealed;
 use super::shared_types::{ContainerConfig, ContainerInfo};
-use crate::types::ContainerId;
+use crate::types::{ContainerId, ServiceName};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -69,6 +69,21 @@ pub struct ContainerFilters {
     pub name: Option<String>,
     /// Include stopped containers.
     pub all: bool,
+}
+
+impl ContainerFilters {
+    /// Create a filter for peleka-managed containers of a service.
+    pub fn for_service(service: &ServiceName, include_stopped: bool) -> Self {
+        let mut labels = HashMap::new();
+        labels.insert("peleka.service".to_string(), service.to_string());
+        labels.insert("peleka.managed".to_string(), "true".to_string());
+
+        Self {
+            labels,
+            all: include_stopped,
+            ..Default::default()
+        }
+    }
 }
 
 /// Summary information about a container.

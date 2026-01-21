@@ -350,7 +350,10 @@ impl Session {
         let forward_handle =
             super::forward::start_forward(Arc::clone(&self.handle), remote_socket.to_string())
                 .await?;
-        let path = forward_handle.path().to_string();
+        let path = forward_handle
+            .path()
+            .ok_or_else(|| Error::SocketForwardFailed("socket path is not valid UTF-8".to_string()))?
+            .to_string();
         self.forwarders.push(forward_handle);
         Ok(path)
     }

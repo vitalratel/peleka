@@ -46,6 +46,17 @@ pub struct HookContext {
 }
 
 impl HookContext {
+    /// Create a new hook context from config and server.
+    pub fn new(config: &crate::config::Config, server: &crate::config::ServerConfig) -> Self {
+        Self {
+            service: config.service.clone(),
+            image: config.image.to_string(),
+            server: server.host.clone(),
+            runtime: server.runtime_string(),
+            previous_version: None,
+        }
+    }
+
     /// Convert context to environment variables.
     pub fn to_env(&self) -> HashMap<String, String> {
         let mut env = HashMap::new();

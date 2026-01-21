@@ -72,4 +72,21 @@ impl ServerConfig {
             socket: self.socket.clone(),
         }
     }
+
+    /// Get the SSH user for this server.
+    /// Falls back to $USER env var, then "root".
+    pub fn ssh_user(&self) -> String {
+        self.user
+            .clone()
+            .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "root".to_string()))
+    }
+
+    /// Get runtime type as string for display purposes.
+    /// Returns "auto" if no runtime is explicitly configured.
+    pub fn runtime_string(&self) -> String {
+        self.runtime
+            .as_ref()
+            .map(|r| r.to_string())
+            .unwrap_or_else(|| "auto".to_string())
+    }
 }
