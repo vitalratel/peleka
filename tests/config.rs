@@ -214,32 +214,31 @@ env:
         env_map.insert(
             "FROM_ENV".to_string(),
             EnvValue::FromEnv {
-                var: "TEST_VAR".to_string(),
+                var: "PELEKA_TEST_VAR".to_string(),
                 default: None,
             },
         );
         env_map.insert(
             "WITH_DEFAULT".to_string(),
             EnvValue::FromEnv {
-                var: "MISSING_VAR".to_string(),
+                var: "PELEKA_MISSING_VAR".to_string(),
                 default: Some("default_value".to_string()),
             },
         );
 
-        // SAFETY: This test runs single-threaded and no other code reads TEST_VAR
-        unsafe { std::env::set_var("TEST_VAR", "from_environment") };
-        let resolved = resolve_env_map(&env_map).unwrap();
-        unsafe { std::env::remove_var("TEST_VAR") };
+        temp_env::with_var("PELEKA_TEST_VAR", Some("from_environment"), || {
+            let resolved = resolve_env_map(&env_map).unwrap();
 
-        assert_eq!(resolved.get("KEY"), Some(&"literal".to_string()));
-        assert_eq!(
-            resolved.get("FROM_ENV"),
-            Some(&"from_environment".to_string())
-        );
-        assert_eq!(
-            resolved.get("WITH_DEFAULT"),
-            Some(&"default_value".to_string())
-        );
+            assert_eq!(resolved.get("KEY"), Some(&"literal".to_string()));
+            assert_eq!(
+                resolved.get("FROM_ENV"),
+                Some(&"from_environment".to_string())
+            );
+            assert_eq!(
+                resolved.get("WITH_DEFAULT"),
+                Some(&"default_value".to_string())
+            );
+        });
     }
 }
 

@@ -95,7 +95,7 @@ impl PodmanContainer {
         Self::build_image(&docker).await?;
 
         // Read public key
-        let key_path = Self::test_key_path();
+        let key_path = super::test_key_path();
         let public_key = std::fs::read_to_string(format!("{}.pub", key_path))?;
 
         // Find an available port
@@ -177,7 +177,7 @@ impl PodmanContainer {
         let dockerfile_dir = format!("{}/tests/fixtures/podman-ssh", env!("CARGO_MANIFEST_DIR"));
 
         // Create tar archive of build context
-        let tar_data = Self::create_build_context(&dockerfile_dir)?;
+        let tar_data = super::create_build_context(&dockerfile_dir)?;
 
         let options = BuildImageOptions {
             dockerfile: "Dockerfile".to_string(),
@@ -203,46 +203,12 @@ impl PodmanContainer {
         Ok(())
     }
 
-    /// Create a tar archive of the build context.
-    fn create_build_context(
-        dir: &str,
-    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut ar = tar::Builder::new(Vec::new());
-
-        // Add Dockerfile
-        let dockerfile_path = format!("{}/Dockerfile", dir);
-        let dockerfile_content = std::fs::read(&dockerfile_path)?;
-        let mut header = tar::Header::new_gnu();
-        header.set_path("Dockerfile")?;
-        header.set_size(dockerfile_content.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        ar.append(&header, dockerfile_content.as_slice())?;
-
-        // Add entrypoint.sh
-        let entrypoint_path = format!("{}/entrypoint.sh", dir);
-        let entrypoint_content = std::fs::read(&entrypoint_path)?;
-        let mut header = tar::Header::new_gnu();
-        header.set_path("entrypoint.sh")?;
-        header.set_size(entrypoint_content.len() as u64);
-        header.set_mode(0o755);
-        header.set_cksum();
-        ar.append(&header, entrypoint_content.as_slice())?;
-
-        ar.into_inner().map_err(Into::into)
-    }
-
     /// Get SessionConfig for connecting to this container.
     pub fn session_config(&self) -> SessionConfig {
         SessionConfig::new("127.0.0.1", TEST_USER)
             .port(self.port)
-            .key_path(Self::test_key_path())
+            .key_path(super::test_key_path())
             .trust_on_first_use(true)
-    }
-
-    fn test_key_path() -> String {
-        let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        format!("{}/tests/fixtures/test_key", manifest_dir)
     }
 
     /// Get the host's external IP address (first non-loopback IPv4).
