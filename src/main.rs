@@ -8,13 +8,13 @@ use cli::{Cli, Commands};
 use peleka::config::{self, Config, ServerConfig};
 use peleka::deploy::{DeployLock, Deployment, Initialized, manual_rollback};
 use peleka::error::{Error, Result};
+use peleka::hooks::{HookContext, HookPoint, HookRunner};
 use peleka::runtime::{
     BollardRuntime, ContainerFilters, ContainerOps, connect_via_session, detect_runtime,
 };
 use peleka::ssh::{Session, SessionConfig};
 use std::collections::HashMap;
 use std::env;
-use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -76,31 +76,6 @@ async fn run(cli: Cli) -> Result<()> {
 
             rollback(config).await
         }
-        Commands::Status => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
-            Config::discover(&cwd).map(|config| {
-                println!("Service: {}", config.service);
-                println!("Image: {}", config.image);
-                println!("Servers: {}", config.servers.len());
-                // TODO: Connect to servers and show container status
-            })
-        }
-        Commands::Logs {
-            tail,
-            follow,
-            since,
-            stats,
-        } => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
-            Config::discover(&cwd).map(|config| {
-                println!("Service: {}", config.service);
-                println!(
-                    "Options: tail={:?}, follow={}, since={:?}, stats={}",
-                    tail, follow, since, stats
-                );
-                // TODO: Connect to servers and stream logs
-            })
-        }
     }
 }
 
@@ -110,6 +85,9 @@ async fn deploy(config: Config, force: bool) -> Result<()> {
         return Err(Error::NoServers);
     }
 
+    let cwd = env::current_dir().expect("Failed to get current directory");
+    let hook_runner = HookRunner::new(&cwd);
+
     println!(
         "Deploying {} ({}) to {} server(s)",
         config.service,
@@ -117,10 +95,83 @@ async fn deploy(config: Config, force: bool) -> Result<()> {
         config.servers.len()
     );
 
+    // Run pre-deploy hook for each server
+    for server in &config.servers {
+        let hook_context = HookContext {
+            service: config.service.clone(),
+            image: config.image.to_string(),
+            server: server.host.clone(),
+            runtime: server
+                .runtime
+                .as_ref()
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "auto".to_string()),
+            previous_version: None, // TODO: Could detect from running container
+        };
+
+        if let Some(result) = hook_runner.run(HookPoint::PreDeploy, &hook_context).await
+            && !result.success
+        {
+            eprintln!("Pre-deploy hook failed for {}", server.host);
+            if !result.stderr.is_empty() {
+                eprintln!("{}", result.stderr);
+            }
+            return Err(Error::Hook("pre-deploy hook failed".to_string()));
+        }
+    }
+
+    // Deploy to each server
+    let mut deploy_error = None;
     for server in &config.servers {
         if let Err(e) = deploy_to_server(&config, server, force).await {
             eprintln!("Failed to deploy to {}: {}", server.host, e);
-            return Err(e);
+
+            // Run on-error hook
+            let hook_context = HookContext {
+                service: config.service.clone(),
+                image: config.image.to_string(),
+                server: server.host.clone(),
+                runtime: server
+                    .runtime
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_else(|| "auto".to_string()),
+                previous_version: None,
+            };
+
+            if let Some(result) = hook_runner.run(HookPoint::OnError, &hook_context).await
+                && !result.success
+            {
+                eprintln!("Warning: on-error hook failed");
+            }
+
+            deploy_error = Some(e);
+            break;
+        }
+    }
+
+    if let Some(e) = deploy_error {
+        return Err(e);
+    }
+
+    // Run post-deploy hook for each server
+    for server in &config.servers {
+        let hook_context = HookContext {
+            service: config.service.clone(),
+            image: config.image.to_string(),
+            server: server.host.clone(),
+            runtime: server
+                .runtime
+                .as_ref()
+                .map(|r| r.to_string())
+                .unwrap_or_else(|| "auto".to_string()),
+            previous_version: None,
+        };
+
+        if let Some(result) = hook_runner.run(HookPoint::PostDeploy, &hook_context).await
+            && !result.success
+        {
+            eprintln!("Warning: post-deploy hook failed for {}", server.host);
         }
     }
 
@@ -163,7 +214,7 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()
 
     let ssh_config = SessionConfig::new(&server.host, &user)
         .port(server.port)
-        .trust_on_first_use(true);
+        .trust_on_first_use(server.trust_first_connection);
 
     let mut session = Session::connect(ssh_config)
         .await
@@ -222,7 +273,7 @@ async fn deploy_to_server(config: &Config, server: &ServerConfig, force: bool) -
 
     let ssh_config = SessionConfig::new(&server.host, &user)
         .port(server.port)
-        .trust_on_first_use(true); // TODO: Make configurable
+        .trust_on_first_use(server.trust_first_connection);
 
     let session = Session::connect(ssh_config)
         .await
@@ -279,7 +330,7 @@ async fn deploy_to_server_inner(
 
     let ssh_config = SessionConfig::new(&server.host, &user)
         .port(server.port)
-        .trust_on_first_use(true);
+        .trust_on_first_use(server.trust_first_connection);
 
     let mut tunnel_session = Session::connect(ssh_config)
         .await
@@ -369,7 +420,7 @@ async fn run_deployment(
 
     // Health check
     println!("  → Waiting for health check...");
-    let health_timeout = Duration::from_secs(120); // TODO: Make configurable
+    let health_timeout = deployment.config().health_timeout;
     let deployment = match deployment.health_check(runtime, health_timeout).await {
         Ok(d) => d,
         Err((failed_deployment, e)) => {

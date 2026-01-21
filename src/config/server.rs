@@ -15,10 +15,16 @@ pub struct ServerConfig {
     pub runtime: Option<RuntimeType>,
     #[serde(default)]
     pub socket: Option<String>,
+    #[serde(default = "default_trust_first_connection")]
+    pub trust_first_connection: bool,
 }
 
 fn default_port() -> u16 {
     22
+}
+
+fn default_trust_first_connection() -> bool {
+    true
 }
 
 impl ServerConfig {
@@ -55,6 +61,7 @@ impl ServerConfig {
             user: user_part.map(|s| s.to_string()),
             runtime: None,
             socket: None,
+            trust_first_connection: true,
         })
     }
 

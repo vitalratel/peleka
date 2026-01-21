@@ -53,6 +53,9 @@ pub struct Config {
     #[serde(default)]
     pub healthcheck: Option<HealthcheckConfig>,
 
+    #[serde(default = "default_health_timeout", with = "humantime_serde")]
+    pub health_timeout: Duration,
+
     #[serde(default)]
     pub resources: Option<ResourcesConfig>,
 
@@ -122,6 +125,10 @@ pub struct CleanupConfig {
 
 fn default_grace_period() -> Duration {
     Duration::from_secs(30)
+}
+
+fn default_health_timeout() -> Duration {
+    Duration::from_secs(120)
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -213,6 +220,7 @@ impl Config {
                 user: Some("deploy".to_string()),
                 runtime: None,
                 socket: None,
+                trust_first_connection: true,
             }],
             ports: vec![],
             volumes: vec![],
@@ -220,6 +228,7 @@ impl Config {
             labels: HashMap::new(),
             command: None,
             healthcheck: None,
+            health_timeout: default_health_timeout(),
             resources: None,
             network: None,
             restart: RestartPolicy::default(),

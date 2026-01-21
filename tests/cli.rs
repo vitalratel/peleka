@@ -17,7 +17,7 @@ fn help_shows_commands() {
         .success()
         .stdout(predicate::str::contains("init"))
         .stdout(predicate::str::contains("deploy"))
-        .stdout(predicate::str::contains("status"));
+        .stdout(predicate::str::contains("rollback"));
 }
 
 #[test]
@@ -103,60 +103,6 @@ fn init_with_image() {
 }
 
 #[test]
-fn status_requires_config_file() {
-    let temp_dir = tempfile::tempdir().unwrap();
-
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .arg("status")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("configuration file not found"));
-}
-
-#[test]
-fn status_shows_service_info() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_content = r#"
-service: myapp
-image: ghcr.io/example/myapp:latest
-servers:
-  - host: server1.example.com
-  - host: server2.example.com
-"#;
-    fs::write(temp_dir.path().join("peleka.yml"), config_content).unwrap();
-
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .arg("status")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Service: myapp"))
-        .stdout(predicate::str::contains("Servers: 2"));
-}
-
-#[test]
-fn logs_requires_config_file() {
-    let temp_dir = tempfile::tempdir().unwrap();
-
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .arg("logs")
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("configuration file not found"));
-}
-
-#[test]
-fn help_shows_logs_command() {
-    peleka_cmd()
-        .arg("--help")
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("logs"));
-}
-
-#[test]
 fn verbose_flag_accepted() {
     peleka_cmd()
         .arg("--help")
@@ -168,73 +114,20 @@ fn verbose_flag_accepted() {
 #[test]
 fn verbose_works_with_subcommands() {
     let temp_dir = tempfile::tempdir().unwrap();
-    let config_content = r#"
-service: myapp
-image: ghcr.io/example/myapp:latest
-servers:
-  - host: server1.example.com
-"#;
-    fs::write(temp_dir.path().join("peleka.yml"), config_content).unwrap();
 
-    // Verbose before subcommand
+    // Verbose with init --help (doesn't require config)
     peleka_cmd()
         .current_dir(temp_dir.path())
-        .args(["--verbose", "status"])
+        .args(["--verbose", "init", "--help"])
         .assert()
         .success();
 
     // Short form
     peleka_cmd()
         .current_dir(temp_dir.path())
-        .args(["-v", "status"])
+        .args(["-v", "init", "--help"])
         .assert()
         .success();
-}
-
-#[test]
-fn logs_accepts_options() {
-    let temp_dir = tempfile::tempdir().unwrap();
-    let config_content = r#"
-service: myapp
-image: ghcr.io/example/myapp:latest
-servers:
-  - host: server1.example.com
-"#;
-    fs::write(temp_dir.path().join("peleka.yml"), config_content).unwrap();
-
-    // Test --tail option
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .args(["logs", "--tail", "100"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("tail=Some(100)"));
-
-    // Test -f option
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .args(["logs", "-f"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("follow=true"));
-
-    // Test --since option
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .args(["logs", "--since", "2024-01-15T10:00:00"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains(
-            "since=Some(\"2024-01-15T10:00:00\")",
-        ));
-
-    // Test --stats option
-    peleka_cmd()
-        .current_dir(temp_dir.path())
-        .args(["logs", "--stats"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("stats=true"));
 }
 
 #[test]

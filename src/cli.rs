@@ -50,26 +50,4 @@ pub enum Commands {
         #[arg(short, long)]
         destination: Option<String>,
     },
-
-    /// Show deployment status
-    Status,
-
-    /// Stream container logs
-    Logs {
-        /// Number of lines to show from end
-        #[arg(long)]
-        tail: Option<u64>,
-
-        /// Follow log output (like tail -f)
-        #[arg(short, long)]
-        follow: bool,
-
-        /// Show logs since timestamp (e.g., 2024-01-15T10:00:00)
-        #[arg(long)]
-        since: Option<String>,
-
-        /// Show log disk usage statistics
-        #[arg(long)]
-        stats: bool,
-    },
 }

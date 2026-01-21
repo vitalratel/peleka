@@ -38,6 +38,9 @@ pub enum Error {
 
     #[error("no servers configured")]
     NoServers,
+
+    #[error("hook failed: {0}")]
+    Hook(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
