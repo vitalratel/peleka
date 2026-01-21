@@ -112,6 +112,24 @@ fn verbose_flag_accepted() {
 }
 
 #[test]
+fn quiet_flag_accepted() {
+    peleka_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--quiet"));
+}
+
+#[test]
+fn json_flag_accepted() {
+    peleka_cmd()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--json"));
+}
+
+#[test]
 fn verbose_works_with_subcommands() {
     let temp_dir = tempfile::tempdir().unwrap();
 

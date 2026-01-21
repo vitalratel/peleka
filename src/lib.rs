@@ -5,6 +5,7 @@ pub mod config;
 pub mod deploy;
 pub mod error;
 pub mod hooks;
+pub mod output;
 pub mod runtime;
 pub mod ssh;
 pub mod types;

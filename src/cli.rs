@@ -12,6 +12,14 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
+    /// Suppress progress output (CI mode)
+    #[arg(short, long, global = true)]
+    pub quiet: bool,
+
+    /// Output as JSON lines (for scripting)
+    #[arg(long, global = true)]
+    pub json: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

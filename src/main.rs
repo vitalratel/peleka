@@ -9,6 +9,7 @@ use peleka::config::{self, Config, ServerConfig};
 use peleka::deploy::{DeployLock, Deployment, Initialized, manual_rollback};
 use peleka::error::{Error, Result};
 use peleka::hooks::{HookContext, HookPoint, HookRunner};
+use peleka::output::{Output, OutputMode};
 use peleka::runtime::{
     BollardRuntime, ContainerFilters, ContainerOps, connect_via_session, detect_runtime,
 };
@@ -32,7 +33,17 @@ async fn main() {
         .with_target(true)
         .init();
 
-    let result = run(cli).await;
+    // Determine output mode
+    let output_mode = if cli.json {
+        OutputMode::Json
+    } else if cli.quiet {
+        OutputMode::Quiet
+    } else {
+        OutputMode::Normal
+    };
+    let output = Output::new(output_mode);
+
+    let result = run(cli, output).await;
 
     if let Err(e) = result {
         eprintln!("Error: {e}");
@@ -40,7 +51,7 @@ async fn main() {
     }
 }
 
-async fn run(cli: Cli) -> Result<()> {
+async fn run(cli: Cli, output: Output) -> Result<()> {
     match cli.command {
         Commands::Init {
             service,
@@ -61,7 +72,7 @@ async fn run(cli: Cli) -> Result<()> {
                 config
             };
 
-            deploy(config, force).await
+            deploy(config, force, output).await
         }
         Commands::Rollback { destination } => {
             let cwd = env::current_dir().expect("Failed to get current directory");
@@ -74,26 +85,27 @@ async fn run(cli: Cli) -> Result<()> {
                 config
             };
 
-            rollback(config).await
+            rollback(config, output).await
         }
     }
 }
 
 /// Deploy to all configured servers.
-async fn deploy(config: Config, force: bool) -> Result<()> {
+async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     if config.servers.is_empty() {
         return Err(Error::NoServers);
     }
 
+    output.start_timer();
     let cwd = env::current_dir().expect("Failed to get current directory");
     let hook_runner = HookRunner::new(&cwd);
 
-    println!(
+    output.progress(&format!(
         "Deploying {} ({}) to {} server(s)",
         config.service,
         config.image,
         config.servers.len()
-    );
+    ));
 
     // Run pre-deploy hook for each server
     for server in &config.servers {
@@ -123,7 +135,7 @@ async fn deploy(config: Config, force: bool) -> Result<()> {
     // Deploy to each server
     let mut deploy_error = None;
     for server in &config.servers {
-        if let Err(e) = deploy_to_server(&config, server, force).await {
+        if let Err(e) = deploy_to_server(&config, server, force, &output).await {
             eprintln!("Failed to deploy to {}: {}", server.host, e);
 
             // Run on-error hook
@@ -175,36 +187,38 @@ async fn deploy(config: Config, force: bool) -> Result<()> {
         }
     }
 
-    println!("Deployment complete!");
+    output.success("Deployment complete!");
     Ok(())
 }
 
 /// Rollback to previous deployment on all configured servers.
-async fn rollback(config: Config) -> Result<()> {
+async fn rollback(config: Config, mut output: Output) -> Result<()> {
     if config.servers.is_empty() {
         return Err(Error::NoServers);
     }
 
-    println!(
+    output.start_timer();
+
+    output.progress(&format!(
         "Rolling back {} on {} server(s)",
         config.service,
         config.servers.len()
-    );
+    ));
 
     for server in &config.servers {
-        if let Err(e) = rollback_on_server(&config, server).await {
+        if let Err(e) = rollback_on_server(&config, server, &output).await {
             eprintln!("Failed to rollback on {}: {}", server.host, e);
             return Err(e);
         }
     }
 
-    println!("Rollback complete!");
+    output.success("Rollback complete!");
     Ok(())
 }
 
 /// Rollback on a single server.
-async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()> {
-    println!("  → Connecting to {}...", server.host);
+async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Output) -> Result<()> {
+    output.progress(&format!("  → Connecting to {}...", server.host));
 
     // Create SSH session
     let user = server
@@ -221,15 +235,15 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
     // Detect runtime
-    println!("  → Detecting runtime...");
+    output.progress("  → Detecting runtime...");
     let runtime_info = detect_runtime(&session, Some(&server.runtime_config()))
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
-    println!(
+    output.progress(&format!(
         "  → Found {} at {}",
         runtime_info.runtime_type, runtime_info.socket_path
-    );
+    ));
 
     // Connect to runtime via SSH tunnel
     let runtime = connect_via_session(&mut session, runtime_info.runtime_type)
@@ -245,12 +259,12 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()
     let network_id = peleka::types::NetworkId::new(network_name);
 
     // Perform rollback
-    println!("  → Swapping containers...");
+    output.progress("  → Swapping containers...");
     manual_rollback(&runtime, &config.service, &network_id)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
-    println!("  ✓ Rollback successful");
+    output.progress("  ✓ Rollback successful");
 
     // Disconnect SSH session
     session
@@ -262,8 +276,13 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig) -> Result<()
 }
 
 /// Deploy to a single server.
-async fn deploy_to_server(config: &Config, server: &ServerConfig, force: bool) -> Result<()> {
-    println!("  → Connecting to {}...", server.host);
+async fn deploy_to_server(
+    config: &Config,
+    server: &ServerConfig,
+    force: bool,
+    output: &Output,
+) -> Result<()> {
+    output.progress(&format!("  → Connecting to {}...", server.host));
 
     // Create SSH session
     let user = server
@@ -280,13 +299,13 @@ async fn deploy_to_server(config: &Config, server: &ServerConfig, force: bool) -
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
     // Acquire deploy lock
-    println!("  → Acquiring deploy lock...");
+    output.progress("  → Acquiring deploy lock...");
     let lock = DeployLock::acquire(&session, &config.service, force)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
     // Run deployment with lock, ensuring cleanup on error
-    let result = deploy_to_server_inner(config, server, &session).await;
+    let result = deploy_to_server_inner(config, server, &session, output).await;
 
     // Release lock (always, even on error)
     lock.release()
@@ -307,17 +326,18 @@ async fn deploy_to_server_inner(
     config: &Config,
     server: &ServerConfig,
     session: &Session,
+    output: &Output,
 ) -> Result<()> {
     // Detect runtime
-    println!("  → Detecting runtime...");
+    output.progress("  → Detecting runtime...");
     let runtime_info = detect_runtime(session, Some(&server.runtime_config()))
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
-    println!(
+    output.progress(&format!(
         "  → Found {} at {}",
         runtime_info.runtime_type, runtime_info.socket_path
-    );
+    ));
 
     // Connect to runtime via SSH tunnel
     // Note: We need a mutable reference for the tunnel, but session is borrowed immutably
@@ -344,9 +364,9 @@ async fn deploy_to_server_inner(
     let old_container = find_existing_container(&runtime, &config.service).await?;
 
     if let Some(ref id) = old_container {
-        println!("  → Found existing container: {}", id);
+        output.progress(&format!("  → Found existing container: {}", id));
     } else {
-        println!("  → No existing container (first deploy)");
+        output.progress("  → No existing container (first deploy)");
     }
 
     // Create deployment
@@ -357,7 +377,7 @@ async fn deploy_to_server_inner(
     };
 
     // Run deployment state machine
-    run_deployment(deployment, &runtime).await?;
+    run_deployment(deployment, &runtime, output).await?;
 
     // Disconnect tunnel session
     tunnel_session
@@ -396,36 +416,37 @@ async fn find_existing_container(
 async fn run_deployment(
     deployment: Deployment<Initialized>,
     runtime: &BollardRuntime,
+    output: &Output,
 ) -> Result<()> {
     // Ensure network exists
-    println!("  → Ensuring network exists...");
+    output.progress("  → Ensuring network exists...");
     let network_id = deployment
         .ensure_network(runtime)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
     // Pull image
-    println!("  → Pulling image...");
+    output.progress("  → Pulling image...");
     let deployment = deployment
         .pull_image(runtime, None)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
     // Start container
-    println!("  → Starting container...");
+    output.progress("  → Starting container...");
     let deployment = deployment
         .start_container(runtime)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
     // Health check
-    println!("  → Waiting for health check...");
+    output.progress("  → Waiting for health check...");
     let health_timeout = deployment.config().health_timeout;
     let deployment = match deployment.health_check(runtime, health_timeout).await {
         Ok(d) => d,
         Err((failed_deployment, e)) => {
             eprintln!("  ✗ Health check failed: {}", e);
-            println!("  → Rolling back...");
+            output.progress("  → Rolling back...");
             failed_deployment
                 .rollback(runtime)
                 .await
@@ -435,23 +456,23 @@ async fn run_deployment(
     };
 
     // Cutover
-    println!("  → Cutting over traffic...");
+    output.progress("  → Cutting over traffic...");
     let deployment = deployment
         .cutover(runtime, &network_id)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
     // Cleanup old container
-    println!("  → Cleaning up...");
+    output.progress("  → Cleaning up...");
     let deployment = deployment
         .cleanup(runtime)
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
-    println!(
+    output.progress(&format!(
         "  ✓ Deployed container: {}",
         deployment.deployed_container()
-    );
+    ));
 
     Ok(())
 }
