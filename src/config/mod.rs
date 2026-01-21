@@ -210,6 +210,15 @@ impl Config {
         Ok(merged)
     }
 
+    /// Get the network name for this deployment.
+    /// Uses configured network name or falls back to "peleka".
+    pub fn network_name(&self) -> String {
+        self.network
+            .as_ref()
+            .map(|n| n.name.clone())
+            .unwrap_or_else(default_network_name)
+    }
+
     pub fn template() -> Self {
         Config {
             service: ServiceName::new("my-app").unwrap(),

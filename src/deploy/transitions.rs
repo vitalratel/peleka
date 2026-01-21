@@ -58,11 +58,7 @@ impl<S> Deployment<S> {
 
     /// Get the network name to use.
     fn network_name(&self) -> String {
-        self.config
-            .network
-            .as_ref()
-            .map(|n| n.name.clone())
-            .unwrap_or_else(|| "peleka".to_string())
+        self.config.network_name()
     }
 
     /// Get the network alias for the service.

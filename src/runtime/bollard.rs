@@ -368,7 +368,7 @@ impl BollardRuntime {
 /// Forwards the Docker/Podman socket from the remote server and creates a
 /// BollardRuntime that communicates through the tunnel.
 pub async fn connect_via_session(
-    session: &mut Session,
+    session: &Session,
     runtime_type: RuntimeType,
 ) -> Result<BollardRuntime, RuntimeInfoError> {
     // Determine remote socket path based on runtime type

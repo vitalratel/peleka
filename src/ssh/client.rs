@@ -8,7 +8,7 @@ use russh::keys::known_hosts::{check_known_hosts, learn_known_hosts};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::UnixStream;
 
@@ -134,7 +134,7 @@ pub struct Session {
     config: SessionConfig,
     handle: Arc<Handle<SshHandler>>,
     /// Active socket forwarders.
-    forwarders: Vec<super::forward::ForwardHandle>,
+    forwarders: Mutex<Vec<super::forward::ForwardHandle>>,
 }
 
 impl std::fmt::Debug for Session {
@@ -187,7 +187,7 @@ impl Session {
         Ok(Self {
             config,
             handle: Arc::new(session),
-            forwarders: Vec::new(),
+            forwarders: Mutex::new(Vec::new()),
         })
     }
 
@@ -346,7 +346,7 @@ impl Session {
     ///
     /// Creates a local socket that tunnels all connections through SSH to
     /// the specified remote socket path. Returns the path to the local socket.
-    pub async fn forward_socket(&mut self, remote_socket: &str) -> Result<String> {
+    pub async fn forward_socket(&self, remote_socket: &str) -> Result<String> {
         let forward_handle =
             super::forward::start_forward(Arc::clone(&self.handle), remote_socket.to_string())
                 .await?;
@@ -354,14 +354,15 @@ impl Session {
             .path()
             .ok_or_else(|| Error::SocketForwardFailed("socket path is not valid UTF-8".to_string()))?
             .to_string();
-        self.forwarders.push(forward_handle);
+        self.forwarders.lock().unwrap().push(forward_handle);
         Ok(path)
     }
 
     /// Disconnect the session.
-    pub async fn disconnect(mut self) -> Result<()> {
-        // Stop all forwarders first
-        for forwarder in self.forwarders.drain(..) {
+    pub async fn disconnect(self) -> Result<()> {
+        // Stop all forwarders first (drain to Vec to release lock before await)
+        let forwarders: Vec<_> = self.forwarders.lock().unwrap().drain(..).collect();
+        for forwarder in forwarders {
             forwarder.stop().await;
         }
 

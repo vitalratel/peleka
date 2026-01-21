@@ -2,6 +2,7 @@
 // ABOUTME: Parses formats like "host", "user@host", "host:port", "user@host:port".
 
 use crate::runtime::RuntimeType;
+use crate::ssh::SessionConfig;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -88,5 +89,12 @@ impl ServerConfig {
             .as_ref()
             .map(|r| r.to_string())
             .unwrap_or_else(|| "auto".to_string())
+    }
+
+    /// Create SSH session config for connecting to this server.
+    pub fn ssh_session_config(&self) -> SessionConfig {
+        SessionConfig::new(&self.host, self.ssh_user())
+            .port(self.port)
+            .trust_on_first_use(self.trust_first_connection)
     }
 }

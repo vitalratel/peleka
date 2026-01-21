@@ -14,7 +14,7 @@ use peleka::runtime::{
     BollardRuntime, ContainerFilters, ContainerOps, ExecConfig, ExecOps, connect_via_session,
     detect_runtime,
 };
-use peleka::ssh::{Session, SessionConfig};
+use peleka::ssh::Session;
 use std::env;
 use tracing_subscriber::EnvFilter;
 
@@ -124,7 +124,6 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     ));
 
     // Run pre-deploy hook for each server
-    // TODO: Could detect previous_version from running container
     for server in &config.servers {
         let hook_context = HookContext::new(&config, server);
 
@@ -223,12 +222,7 @@ async fn exec_on_server(
 ) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
-    // Create SSH session
-    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
-        .port(server.port)
-        .trust_on_first_use(server.trust_first_connection);
-
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(server.ssh_session_config())
         .await
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
@@ -244,7 +238,7 @@ async fn exec_on_server(
     ));
 
     // Connect to runtime via SSH tunnel
-    let runtime = connect_via_session(&mut session, runtime_info.runtime_type)
+    let runtime = connect_via_session(&session, runtime_info.runtime_type)
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
@@ -305,12 +299,7 @@ async fn exec_on_server(
 async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Output) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
-    // Create SSH session
-    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
-        .port(server.port)
-        .trust_on_first_use(server.trust_first_connection);
-
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(server.ssh_session_config())
         .await
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
@@ -326,17 +315,12 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Out
     ));
 
     // Connect to runtime via SSH tunnel
-    let runtime = connect_via_session(&mut session, runtime_info.runtime_type)
+    let runtime = connect_via_session(&session, runtime_info.runtime_type)
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
     // Get network ID
-    let network_name = config
-        .network
-        .as_ref()
-        .map(|n| n.name.clone())
-        .unwrap_or_else(|| "peleka".to_string());
-    let network_id = peleka::types::NetworkId::new(network_name);
+    let network_id = peleka::types::NetworkId::new(config.network_name());
 
     // Perform rollback
     output.progress("  → Swapping containers...");
@@ -364,12 +348,7 @@ async fn deploy_to_server(
 ) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
-    // Create SSH session
-    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
-        .port(server.port)
-        .trust_on_first_use(server.trust_first_connection);
-
-    let session = Session::connect(ssh_config)
+    let session = Session::connect(server.ssh_session_config())
         .await
         .map_err(|e| Error::Ssh(e.to_string()))?;
 
@@ -415,18 +394,7 @@ async fn deploy_to_server_inner(
     ));
 
     // Connect to runtime via SSH tunnel
-    // Note: We need a mutable reference for the tunnel, but session is borrowed immutably
-    // This is a limitation - we need to restructure to avoid this
-    // For now, create a new session for the tunnel
-    let ssh_config = SessionConfig::new(&server.host, server.ssh_user())
-        .port(server.port)
-        .trust_on_first_use(server.trust_first_connection);
-
-    let mut tunnel_session = Session::connect(ssh_config)
-        .await
-        .map_err(|e| Error::Ssh(e.to_string()))?;
-
-    let runtime = connect_via_session(&mut tunnel_session, runtime_info.runtime_type)
+    let runtime = connect_via_session(session, runtime_info.runtime_type)
         .await
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
@@ -448,12 +416,6 @@ async fn deploy_to_server_inner(
 
     // Run deployment state machine
     run_deployment(deployment, &runtime, output).await?;
-
-    // Disconnect tunnel session
-    tunnel_session
-        .disconnect()
-        .await
-        .map_err(|e| Error::Ssh(e.to_string()))?;
 
     Ok(())
 }
