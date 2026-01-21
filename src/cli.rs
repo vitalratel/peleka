@@ -58,4 +58,15 @@ pub enum Commands {
         #[arg(short, long)]
         destination: Option<String>,
     },
+
+    /// Execute a command in the service container
+    Exec {
+        /// Target destination (defined in config)
+        #[arg(short, long)]
+        destination: Option<String>,
+
+        /// Command and arguments to run
+        #[arg(required = true, trailing_var_arg = true)]
+        command: Vec<String>,
+    },
 }

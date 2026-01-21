@@ -3,7 +3,6 @@
 
 mod support;
 
-use peleka::config::Config;
 use peleka::deploy::{Deployment, manual_rollback};
 use peleka::runtime::{ContainerFilters, ContainerOps, NetworkOps, RuntimeType};
 use peleka::ssh::{Session, SessionConfig};
@@ -63,14 +62,7 @@ async fn manual_rollback_swaps_containers() {
     let service_name = ServiceName::new("test-rollback-swap").unwrap();
 
     // Create first deployment config
-    let mut deploy_config = Config::template();
-    deploy_config.service = service_name.clone();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("test-rollback-swap");
     deploy_config.cleanup = Some(peleka::config::CleanupConfig {
         grace_period: Duration::from_secs(0),
     });
@@ -187,14 +179,7 @@ async fn rollback_fails_without_previous() {
     let service_name = ServiceName::new("test-rollback-no-prev").unwrap();
 
     // Create first deployment only (no previous)
-    let mut deploy_config = Config::template();
-    deploy_config.service = service_name.clone();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("test-rollback-no-prev");
     deploy_config.network = Some(peleka::config::NetworkConfig {
         name: "peleka-test-rollback-no-prev".to_string(),
         aliases: vec![],
@@ -264,14 +249,7 @@ async fn double_rollback_swaps_back() {
     let service_name = ServiceName::new("test-rollback-pingpong").unwrap();
 
     // Create deployment config
-    let mut deploy_config = Config::template();
-    deploy_config.service = service_name.clone();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("test-rollback-pingpong");
     deploy_config.cleanup = Some(peleka::config::CleanupConfig {
         grace_period: Duration::from_secs(0),
     });

@@ -102,7 +102,6 @@ async fn podman_session_config() -> SessionConfig {
 /// Test: Full deployment chain works end-to-end.
 #[tokio::test]
 async fn full_deployment_chain() {
-    use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::{NetworkOps, RuntimeType};
 
@@ -117,14 +116,7 @@ async fn full_deployment_chain() {
         .expect("should create Podman runtime");
 
     // Create deployment config with network
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("test-deploy").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("test-deploy");
     deploy_config.network = Some(peleka::config::NetworkConfig {
         name: "peleka-test-network".to_string(),
         aliases: vec![],
@@ -171,7 +163,6 @@ async fn full_deployment_chain() {
 /// Test: Container start failure cleans up created container.
 #[tokio::test]
 async fn container_start_failure_cleans_up() {
-    use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::RuntimeType;
 
@@ -186,14 +177,7 @@ async fn container_start_failure_cleans_up() {
         .expect("should create Docker runtime");
 
     // Create deployment config with invalid command that will fail to start
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("test-fail-start").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let deploy_config = support::test_config("test-fail-start");
 
     // Pull the image first
     let d1 = Deployment::new(deploy_config);
@@ -221,7 +205,6 @@ async fn container_start_failure_cleans_up() {
 /// Test: Rollback from ContainerStarted removes new container.
 #[tokio::test]
 async fn rollback_from_container_started_removes_container() {
-    use peleka::config::Config;
     use peleka::deploy::Deployment;
     use peleka::runtime::{ContainerFilters, ContainerOps, RuntimeType};
 
@@ -236,14 +219,7 @@ async fn rollback_from_container_started_removes_container() {
         .expect("should create Docker runtime");
 
     // Create deployment
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("test-rollback").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let deploy_config = support::test_config("test-rollback");
 
     let d1 = Deployment::new(deploy_config);
     let d2 = d1

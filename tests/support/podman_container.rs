@@ -16,7 +16,7 @@ use tokio::sync::OnceCell;
 
 const SSH_PORT: u16 = 22;
 const TEST_USER: &str = "testuser";
-const IMAGE_NAME: &str = "peleka-podman-ssh:test";
+const IMAGE_NAME: &str = "localhost/peleka-podman-ssh:test";
 
 /// Container info needed for cleanup.
 struct ContainerInfo {
@@ -39,7 +39,10 @@ fn cleanup_on_exit() {
         return;
     };
     rt.block_on(async {
-        if let Ok(docker) = Docker::connect_with_local_defaults() {
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+            .unwrap_or_else(|_| format!("/run/user/{}", std::process::id()));
+        let socket_path = format!("{}/podman/podman.sock", runtime_dir);
+        if let Ok(docker) = Docker::connect_with_socket(&socket_path, 120, bollard::API_DEFAULT_VERSION) {
             let _ = docker
                 .stop_container(&info.container_id, None::<StopContainerOptions>)
                 .await;
@@ -76,8 +79,17 @@ pub struct PodmanContainer {
 }
 
 impl PodmanContainer {
+    /// Get path to rootless podman socket.
+    fn podman_socket_path() -> String {
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+            .unwrap_or_else(|_| format!("/run/user/{}", std::process::id()));
+        format!("{}/podman/podman.sock", runtime_dir)
+    }
+
     async fn start() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let docker = Docker::connect_with_local_defaults()?;
+        // Connect to rootless podman socket
+        let socket_path = Self::podman_socket_path();
+        let docker = Docker::connect_with_socket(&socket_path, 120, bollard::API_DEFAULT_VERSION)?;
 
         // Build the Podman image
         Self::build_image(&docker).await?;
@@ -104,11 +116,18 @@ impl PodmanContainer {
         let host_config = bollard::models::HostConfig {
             port_bindings: Some(port_bindings),
             privileged: Some(true), // Required for Podman-in-container
+            // Allow container to reach host via host.containers.internal
+            extra_hosts: Some(vec!["host.containers.internal:host-gateway".to_string()]),
             ..Default::default()
         };
 
         let mut env = Vec::new();
         env.push(format!("AUTHORIZED_KEY={}", public_key.trim()));
+
+        // Pass host's external IP for NAT redirect in container
+        if let Some(host_ip) = Self::get_host_external_ip() {
+            env.push(format!("GITEA_HOST_IP={}", host_ip));
+        }
 
         let config = ContainerCreateBody {
             image: Some(IMAGE_NAME.to_string()),
@@ -224,6 +243,32 @@ impl PodmanContainer {
     fn test_key_path() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
         format!("{}/tests/fixtures/test_key", manifest_dir)
+    }
+
+    /// Get the host's external IP address (first non-loopback IPv4).
+    fn get_host_external_ip() -> Option<String> {
+        use std::process::Command;
+
+        // Use ip command to get the first global scope IPv4 address
+        let output = Command::new("ip")
+            .args(["-4", "addr", "show", "scope", "global"])
+            .output()
+            .ok()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.starts_with("inet ") {
+                // Parse "inet 192.168.0.106/24 ..."
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let ip_cidr = parts[1];
+                    let ip = ip_cidr.split('/').next()?;
+                    return Some(ip.to_string());
+                }
+            }
+        }
+        None
     }
 
     async fn find_available_port() -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {

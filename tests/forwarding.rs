@@ -25,10 +25,8 @@ async fn forward_to_podman_socket() {
         .await
         .expect("connection should succeed");
 
-    // Detect the remote Podman socket path
-    let uid_output = session.exec("id -u").await.expect("should get uid");
-    let uid = uid_output.stdout.trim();
-    let remote_socket = format!("/run/user/{}/podman/podman.sock", uid);
+    // Detect the remote Podman socket path (rootful or rootless)
+    let remote_socket = support::detect_podman_socket(&mut session).await;
 
     // Start socket forwarding - returns local socket path
     let local_socket_path = session
@@ -79,9 +77,7 @@ async fn forward_socket_cleanup_on_disconnect() {
         .await
         .expect("connection should succeed");
 
-    let uid_output = session.exec("id -u").await.expect("should get uid");
-    let uid = uid_output.stdout.trim();
-    let remote_socket = format!("/run/user/{}/podman/podman.sock", uid);
+    let remote_socket = support::detect_podman_socket(&mut session).await;
 
     let local_socket_path = session
         .forward_socket(&remote_socket)
@@ -120,9 +116,7 @@ async fn forward_multiple_connections() {
         .await
         .expect("connection should succeed");
 
-    let uid_output = session.exec("id -u").await.expect("should get uid");
-    let uid = uid_output.stdout.trim();
-    let remote_socket = format!("/run/user/{}/podman/podman.sock", uid);
+    let remote_socket = support::detect_podman_socket(&mut session).await;
 
     let local_socket_path = session
         .forward_socket(&remote_socket)

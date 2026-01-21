@@ -3,7 +3,6 @@
 
 mod support;
 
-use peleka::config::Config;
 use peleka::deploy::{Deployment, detect_orphans};
 use peleka::runtime::{ContainerOps, NetworkOps, RuntimeType};
 use peleka::ssh::{Session, SessionConfig};
@@ -43,9 +42,7 @@ async fn ensure_network_creates_if_not_exists() {
     }
 
     // Create deployment config with specific network
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("test-ensure-net").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
+    let mut deploy_config = support::test_config("test-ensure-net");
     deploy_config.network = Some(peleka::config::NetworkConfig {
         name: test_network_name.to_string(),
         aliases: vec![],
@@ -102,15 +99,7 @@ async fn first_deployment_creates_blue_container() {
         .await
         .expect("should create Docker runtime");
 
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("test-blue").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
-
+    let deploy_config = support::test_config("test-blue");
     let deployment = Deployment::new(deploy_config);
 
     // Ensure network
@@ -174,15 +163,7 @@ async fn detect_orphans_finds_unknown_containers() {
     let service_name = peleka::types::ServiceName::new("test-orphan").unwrap();
 
     // Create a deployment and start container (this becomes the "orphan")
-    let mut deploy_config = Config::template();
-    deploy_config.service = service_name.clone();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
-
+    let deploy_config = support::test_config("test-orphan");
     let deployment = Deployment::new(deploy_config);
 
     let d2 = deployment

@@ -3,7 +3,7 @@
 
 mod support;
 
-use peleka::config::{Config, HealthcheckConfig};
+use peleka::config::HealthcheckConfig;
 use peleka::deploy::Deployment;
 use peleka::runtime::{ContainerOps, RuntimeType};
 use peleka::ssh::{Session, SessionConfig};
@@ -29,14 +29,7 @@ async fn health_check_passes() {
         .await
         .expect("should create Podman runtime");
 
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("health-test-pass").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("health-test-pass");
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "true".to_string(),
         interval: Duration::from_secs(1),
@@ -86,14 +79,7 @@ async fn health_check_fails_and_rollback() {
         .await
         .expect("should create Podman runtime");
 
-    let mut deploy_config = Config::template();
-    deploy_config.service = peleka::types::ServiceName::new("health-test-fail").unwrap();
-    deploy_config.image = peleka::types::ImageRef::parse("docker.io/library/busybox:1.36").unwrap();
-    deploy_config.command = Some(vec![
-        "sh".to_string(),
-        "-c".to_string(),
-        "sleep infinity".to_string(),
-    ]);
+    let mut deploy_config = support::test_config("health-test-fail");
     deploy_config.healthcheck = Some(HealthcheckConfig {
         cmd: "false".to_string(),
         interval: Duration::from_secs(1),

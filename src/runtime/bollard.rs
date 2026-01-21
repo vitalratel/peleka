@@ -24,9 +24,11 @@ use bollard::query_parameters::{
     LogsOptions, RemoveContainerOptions, RemoveImageOptions, StopContainerOptions,
 };
 use futures::{Stream, StreamExt};
+use hyper_util::rt::TokioIo;
 use std::collections::HashMap;
 use std::pin::Pin;
 use std::time::Duration;
+use tokio::net::UnixStream;
 
 // =============================================================================
 // Error Mapping Helpers
@@ -192,9 +194,11 @@ fn map_exec_not_found_error(e: bollard::errors::Error) -> ExecError {
 /// Container runtime implementation using bollard.
 ///
 /// Supports both Docker and Podman via Docker-compatible API.
+/// For Podman, uses native libpod API for features not in Docker API.
 pub struct BollardRuntime {
     client: Docker,
     runtime_type: RuntimeType,
+    socket_path: Option<String>,
 }
 
 impl BollardRuntime {
@@ -203,6 +207,16 @@ impl BollardRuntime {
         Self {
             client,
             runtime_type,
+            socket_path: None,
+        }
+    }
+
+    /// Create a new BollardRuntime with socket path for libpod API access.
+    pub fn new_with_socket(client: Docker, runtime_type: RuntimeType, socket_path: String) -> Self {
+        Self {
+            client,
+            runtime_type,
+            socket_path: Some(socket_path),
         }
     }
 
@@ -213,7 +227,82 @@ impl BollardRuntime {
         let client =
             Docker::connect_with_unix(&info.socket_path, 120, bollard::API_DEFAULT_VERSION)
                 .map_err(|e| RuntimeInfoError::ConnectionFailed(e.to_string()))?;
-        Ok(Self::new(client, info.runtime_type))
+        Ok(Self::new_with_socket(client, info.runtime_type, info.socket_path.clone()))
+    }
+
+    /// Pull image using Podman's native libpod API with tlsVerify=false.
+    /// This allows pulling from insecure (HTTP) registries.
+    async fn pull_image_libpod(&self, image_name: &str) -> Result<(), ImageError> {
+        let socket_path = self.socket_path.as_ref().ok_or_else(|| {
+            ImageError::PullFailed("socket path not available for libpod API".to_string())
+        })?;
+
+        let stream = UnixStream::connect(socket_path).await.map_err(|e| {
+            ImageError::PullFailed(format!("failed to connect to socket: {}", e))
+        })?;
+
+        let io = TokioIo::new(stream);
+
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.map_err(|e| {
+            ImageError::PullFailed(format!("HTTP handshake failed: {}", e))
+        })?;
+
+        // Spawn connection handler
+        tokio::spawn(async move {
+            if let Err(e) = conn.await {
+                tracing::warn!("libpod connection error: {}", e);
+            }
+        });
+
+        // Build request to libpod API
+        let encoded_ref = urlencoding::encode(image_name);
+        let uri = format!(
+            "/v4.0.0/libpod/images/pull?reference={}&tlsVerify=false",
+            encoded_ref
+        );
+
+        let req = hyper::Request::builder()
+            .method("POST")
+            .uri(&uri)
+            .header("Host", "localhost")
+            .body(http_body_util::Empty::<bytes::Bytes>::new())
+            .map_err(|e| ImageError::PullFailed(format!("failed to build request: {}", e)))?;
+
+        let resp = sender.send_request(req).await.map_err(|e| {
+            ImageError::PullFailed(format!("request failed: {}", e))
+        })?;
+
+        use http_body_util::BodyExt;
+
+        if !resp.status().is_success() {
+            // Read error body
+            let body = resp.into_body().collect().await.map_err(|e| {
+                ImageError::PullFailed(format!("failed to read error response: {}", e))
+            })?;
+            let body_bytes = body.to_bytes();
+            let error_text = String::from_utf8_lossy(&body_bytes);
+            return Err(ImageError::PullFailed(format!(
+                "{}: libpod API error: {}",
+                image_name, error_text
+            )));
+        }
+
+        // Consume response body (it contains progress JSON)
+        let body = resp.into_body().collect().await.map_err(|e| {
+            ImageError::PullFailed(format!("failed to read response: {}", e))
+        })?;
+
+        // Check for error in response
+        let body_bytes = body.to_bytes();
+        let body_text = String::from_utf8_lossy(&body_bytes);
+        if body_text.contains("\"error\"") && !body_text.contains("\"error\":null") {
+            return Err(ImageError::PullFailed(format!(
+                "{}: {}",
+                image_name, body_text
+            )));
+        }
+
+        Ok(())
     }
 
     /// Get the runtime type (Docker or Podman).
@@ -286,13 +375,26 @@ pub async fn connect_via_session(
     let remote_socket = match runtime_type {
         RuntimeType::Docker => "/var/run/docker.sock".to_string(),
         RuntimeType::Podman => {
-            // For rootless Podman, get user ID
-            let uid_output = session
-                .exec("id -u")
-                .await
-                .map_err(|e| RuntimeInfoError::ConnectionFailed(e.to_string()))?;
-            let uid = uid_output.stdout.trim();
-            format!("/run/user/{}/podman/podman.sock", uid)
+            // Check for rootful Podman first, then rootless
+            let rootful_socket = "/run/podman/podman.sock";
+            let check_result = session
+                .exec(&format!("test -S {} && echo exists", rootful_socket))
+                .await;
+
+            if check_result
+                .map(|r| r.stdout.contains("exists"))
+                .unwrap_or(false)
+            {
+                rootful_socket.to_string()
+            } else {
+                // Fall back to rootless Podman
+                let uid_output = session
+                    .exec("id -u")
+                    .await
+                    .map_err(|e| RuntimeInfoError::ConnectionFailed(e.to_string()))?;
+                let uid = uid_output.stdout.trim();
+                format!("/run/user/{}/podman/podman.sock", uid)
+            }
         }
     };
 
@@ -353,6 +455,13 @@ impl ImageOps for BollardRuntime {
     ) -> Result<(), ImageError> {
         let image_name = reference.to_string();
 
+        // For Podman, use native libpod API which supports tlsVerify=false
+        // This allows pulling from insecure (HTTP) registries
+        if self.runtime_type == RuntimeType::Podman && self.socket_path.is_some() {
+            return self.pull_image_libpod(&image_name).await;
+        }
+
+        // Docker-compatible API (works for Docker and Podman with HTTPS registries)
         let opts = CreateImageOptions {
             from_image: Some(image_name.clone()),
             ..Default::default()

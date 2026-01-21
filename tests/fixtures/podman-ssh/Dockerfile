@@ -4,8 +4,8 @@
 
 FROM quay.io/podman/stable:latest
 
-# Install OpenSSH server
-RUN dnf install -y openssh-server passwd && \
+# Install OpenSSH server and iptables (for NAT redirect)
+RUN dnf install -y openssh-server passwd iptables && \
     dnf clean all
 
 # Create test user with password
