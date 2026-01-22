@@ -220,6 +220,15 @@ impl Config {
             .unwrap_or("peleka")
     }
 
+    /// Get the stop timeout for containers.
+    /// Uses configured timeout or falls back to 30 seconds.
+    pub fn stop_timeout(&self) -> Duration {
+        self.stop
+            .as_ref()
+            .map(|s| s.timeout)
+            .unwrap_or_else(|| Duration::from_secs(30))
+    }
+
     pub fn template() -> Self {
         Config {
             service: ServiceName::new("my-app").unwrap(),

@@ -20,6 +20,13 @@ use super::DeployError;
 /// After rollback, what was "previous" becomes "active" and vice versa.
 /// This enables ping-pong behavior: double rollback returns to original state.
 ///
+/// # Arguments
+///
+/// * `runtime` - The container runtime
+/// * `service` - The service name to rollback
+/// * `network_id` - The network to reconnect containers to
+/// * `stop_timeout` - Timeout for stopping the active container
+///
 /// # Errors
 ///
 /// Returns error if:
@@ -30,6 +37,7 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
     runtime: &R,
     service: &ServiceName,
     network_id: &NetworkId,
+    stop_timeout: Duration,
 ) -> Result<(), DeployError> {
     // Find all containers for this service
     let filters = ContainerFilters::for_service(service, true);
@@ -81,9 +89,9 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
         }
     }
 
-    // Stop the previously active container (use short timeout for test compatibility)
+    // Stop the previously active container
     runtime
-        .stop_container(&active.id, Duration::from_secs(10))
+        .stop_container(&active.id, stop_timeout)
         .await
         .map_err(|e| {
             DeployError::rollback_failed(format!("failed to stop active container: {}", e))
@@ -103,8 +111,9 @@ mod tests {
             runtime: &'a R,
             service: &'a ServiceName,
             network_id: &'a NetworkId,
+            stop_timeout: Duration,
         ) -> impl std::future::Future<Output = Result<(), DeployError>> + 'a {
-            manual_rollback(runtime, service, network_id)
+            manual_rollback(runtime, service, network_id, stop_timeout)
         }
     }
 }

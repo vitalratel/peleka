@@ -49,9 +49,10 @@ impl<S> Deployment<S> {
 async fn rollback_container<R: ContainerOps>(
     runtime: &R,
     container_id: &ContainerId,
+    stop_timeout: Duration,
 ) -> Result<(), DeployError> {
     if let Err(e) = runtime
-        .stop_container(container_id, Duration::from_secs(10))
+        .stop_container(container_id, stop_timeout)
         .await
     {
         tracing::warn!("Failed to stop container during rollback: {}", e);
@@ -379,7 +380,8 @@ impl Deployment<ContainerStarted> {
         self,
         runtime: &R,
     ) -> Result<Deployment<Initialized>, DeployError> {
-        rollback_container(runtime, self.state.container_id()).await?;
+        let stop_timeout = self.config.stop_timeout();
+        rollback_container(runtime, self.state.container_id(), stop_timeout).await?;
         Ok(Deployment {
             config: self.config,
             old_container: self.old_container,
@@ -447,7 +449,8 @@ impl Deployment<HealthChecked> {
         self,
         runtime: &R,
     ) -> Result<Deployment<Initialized>, DeployError> {
-        rollback_container(runtime, self.state.container_id()).await?;
+        let stop_timeout = self.config.stop_timeout();
+        rollback_container(runtime, self.state.container_id(), stop_timeout).await?;
         Ok(Deployment {
             config: self.config,
             old_container: self.old_container,

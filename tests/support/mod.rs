@@ -18,8 +18,11 @@ pub const TEST_IMAGE: &str = "host.containers.internal:3000/vitalratel/alpine:3.
 /// - Service name from the parameter
 /// - Test image from TEST_IMAGE constant
 /// - Command that keeps container running (`sleep infinity`)
+/// - Short stop timeout (10s) for faster test execution
 #[allow(dead_code)]
 pub fn test_config(service_name: &str) -> peleka::config::Config {
+    use std::time::Duration;
+
     let mut config = peleka::config::Config::template();
     config.service = peleka::types::ServiceName::new(service_name).unwrap();
     config.image = peleka::types::ImageRef::parse(TEST_IMAGE).unwrap();
@@ -28,6 +31,10 @@ pub fn test_config(service_name: &str) -> peleka::config::Config {
         "-c".to_string(),
         "sleep infinity".to_string(),
     ]);
+    config.stop = Some(peleka::config::StopConfig {
+        timeout: Duration::from_secs(10),
+        signal: "SIGTERM".to_string(),
+    });
     config
 }
 

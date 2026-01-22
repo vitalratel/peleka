@@ -6,7 +6,7 @@ mod cli;
 use clap::Parser;
 use cli::{Cli, Commands};
 use peleka::config::{self, Config, ServerConfig};
-use peleka::deploy::{DeployLock, Deployment, Initialized, manual_rollback};
+use peleka::deploy::{DeployLock, Deployment, Initialized, cleanup_orphans, detect_orphans, manual_rollback};
 use peleka::diagnostics::{Diagnostics, Warning};
 use peleka::error::{Error, Result};
 use peleka::hooks::{HookContext, HookPoint, HookRunner};
@@ -355,7 +355,7 @@ async fn rollback_on_server(
 
     // Perform rollback
     output.progress("  → Swapping containers...");
-    manual_rollback(&runtime, &config.service, &network_id)
+    manual_rollback(&runtime, &config.service, &network_id, config.stop_timeout())
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
@@ -532,10 +532,38 @@ async fn run_deployment(
         .await
         .map_err(|e| Error::Deploy(e.to_string()))?;
 
-    output.progress(&format!(
-        "  ✓ Deployed container: {}",
-        deployment.deployed_container()
-    ));
+    // Detect and cleanup orphaned containers
+    let deployed_id = deployment.deployed_container().clone();
+    let old_id = deployment.config().service.clone();
+    let config = deployment.finish();
+
+    // Build list of known containers (newly deployed + old if any)
+    let mut known_containers = vec![deployed_id.clone()];
+    if let Some(ref old_container) = find_existing_container(runtime, &old_id).await? {
+        known_containers.push(old_container.clone());
+    }
+
+    let orphans = detect_orphans(runtime, &config.service, &known_containers)
+        .await
+        .map_err(|e| Error::Deploy(format!("failed to detect orphans: {}", e)))?;
+
+    if !orphans.is_empty() {
+        output.progress(&format!("  → Cleaning up {} orphaned container(s)...", orphans.len()));
+        let orphan_ids: Vec<_> = orphans.iter().map(|o| o.id.clone()).collect();
+        let result = cleanup_orphans(runtime, &orphan_ids, true, config.stop_timeout()).await;
+
+        if !result.all_succeeded() {
+            for failure in &result.failed {
+                tracing::warn!(
+                    "Failed to cleanup orphan container {}: {}",
+                    failure.container_id,
+                    failure.error
+                );
+            }
+        }
+    }
+
+    output.progress(&format!("  ✓ Deployed container: {}", deployed_id));
 
     Ok(())
 }

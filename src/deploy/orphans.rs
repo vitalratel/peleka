@@ -78,6 +78,7 @@ pub async fn detect_orphans<R: ContainerOps>(
 /// * `runtime` - The container runtime
 /// * `orphans` - Container IDs to clean up
 /// * `force` - Whether to force removal
+/// * `stop_timeout` - Timeout for stopping each container
 ///
 /// # Returns
 ///
@@ -86,15 +87,14 @@ pub async fn cleanup_orphans<R: ContainerOps>(
     runtime: &R,
     orphans: &[ContainerId],
     force: bool,
+    stop_timeout: std::time::Duration,
 ) -> CleanupResult {
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
 
     for container_id in orphans {
         // Try to stop first (ignore errors - container might already be stopped)
-        let _ = runtime
-            .stop_container(container_id, std::time::Duration::from_secs(10))
-            .await;
+        let _ = runtime.stop_container(container_id, stop_timeout).await;
 
         match runtime.remove_container(container_id, force).await {
             Ok(()) => succeeded.push(container_id.clone()),
