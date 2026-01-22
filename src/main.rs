@@ -7,6 +7,7 @@ use clap::Parser;
 use cli::{Cli, Commands};
 use peleka::config::{self, Config, ServerConfig};
 use peleka::deploy::{DeployLock, Deployment, Initialized, manual_rollback};
+use peleka::diagnostics::{Diagnostics, Warning};
 use peleka::error::{Error, Result};
 use peleka::hooks::{HookContext, HookPoint, HookRunner};
 use peleka::output::{Output, OutputMode};
@@ -115,6 +116,7 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     output.start_timer();
     let cwd = env::current_dir()?;
     let hook_runner = HookRunner::new(&cwd);
+    let mut diag = Diagnostics::default();
 
     output.progress(&format!(
         "Deploying {} ({}) to {} server(s)",
@@ -141,7 +143,7 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     // Deploy to each server
     let mut deploy_error = None;
     for server in &config.servers {
-        if let Err(e) = deploy_to_server(&config, server, force, &output).await {
+        if let Err(e) = deploy_to_server(&config, server, force, &output, &mut diag).await {
             eprintln!("Failed to deploy to {}: {}", server.host, e);
 
             // Run on-error hook
@@ -173,6 +175,11 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
         }
     }
 
+    // Emit collected warnings
+    for warning in diag.warnings() {
+        output.warning(&warning.message);
+    }
+
     output.success("Deployment complete!");
     Ok(())
 }
@@ -184,6 +191,7 @@ async fn rollback(config: Config, mut output: Output) -> Result<()> {
     }
 
     output.start_timer();
+    let mut diag = Diagnostics::default();
 
     output.progress(&format!(
         "Rolling back {} on {} server(s)",
@@ -192,10 +200,15 @@ async fn rollback(config: Config, mut output: Output) -> Result<()> {
     ));
 
     for server in &config.servers {
-        if let Err(e) = rollback_on_server(&config, server, &output).await {
+        if let Err(e) = rollback_on_server(&config, server, &output, &mut diag).await {
             eprintln!("Failed to rollback on {}: {}", server.host, e);
             return Err(e);
         }
+    }
+
+    // Emit collected warnings
+    for warning in diag.warnings() {
+        output.warning(&warning.message);
     }
 
     output.success("Rollback complete!");
@@ -208,9 +221,18 @@ async fn exec_command(config: Config, command: Vec<String>, output: Output) -> R
         return Err(Error::NoServers);
     }
 
+    let mut diag = Diagnostics::default();
+
     // Execute on first server only
     let server = &config.servers[0];
-    exec_on_server(&config, server, &command, &output).await
+    let result = exec_on_server(&config, server, &command, &output, &mut diag).await;
+
+    // Emit collected warnings
+    for warning in diag.warnings() {
+        output.warning(&warning.message);
+    }
+
+    result
 }
 
 /// Execute a command on a single server.
@@ -219,6 +241,7 @@ async fn exec_on_server(
     server: &ServerConfig,
     command: &[String],
     output: &Output,
+    diag: &mut Diagnostics,
 ) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
@@ -287,17 +310,24 @@ async fn exec_on_server(
         )));
     }
 
-    // Disconnect SSH session
-    session
-        .disconnect()
-        .await
-        .map_err(|e| Error::Ssh(e.to_string()))?;
+    // Disconnect SSH session (non-fatal if it fails)
+    if let Err(e) = session.disconnect().await {
+        diag.warn(Warning::ssh_disconnect(format!(
+            "SSH disconnect failed for {}: {}",
+            server.host, e
+        )));
+    }
 
     Ok(())
 }
 
 /// Rollback on a single server.
-async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Output) -> Result<()> {
+async fn rollback_on_server(
+    config: &Config,
+    server: &ServerConfig,
+    output: &Output,
+    diag: &mut Diagnostics,
+) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
     let session = Session::connect(server.ssh_session_config())
@@ -331,11 +361,13 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Out
 
     output.progress("  ✓ Rollback successful");
 
-    // Disconnect SSH session
-    session
-        .disconnect()
-        .await
-        .map_err(|e| Error::Ssh(e.to_string()))?;
+    // Disconnect SSH session (non-fatal if it fails)
+    if let Err(e) = session.disconnect().await {
+        diag.warn(Warning::ssh_disconnect(format!(
+            "SSH disconnect failed for {}: {}",
+            server.host, e
+        )));
+    }
 
     Ok(())
 }
@@ -346,6 +378,7 @@ async fn deploy_to_server(
     server: &ServerConfig,
     force: bool,
     output: &Output,
+    diag: &mut Diagnostics,
 ) -> Result<()> {
     output.progress(&format!("  → Connecting to {}...", server.host));
 
@@ -362,16 +395,21 @@ async fn deploy_to_server(
     // Run deployment with lock, ensuring cleanup on error
     let result = deploy_to_server_inner(config, server, &session, output).await;
 
-    // Release lock (always, even on error)
-    lock.release()
-        .await
-        .map_err(|e| Error::Deploy(e.to_string()))?;
+    // Release lock (non-fatal if it fails - deployment already succeeded or failed)
+    if let Err(e) = lock.release().await {
+        diag.warn(Warning::lock_release(format!(
+            "Failed to release deploy lock for {}: {}",
+            server.host, e
+        )));
+    }
 
-    // Disconnect SSH session
-    session
-        .disconnect()
-        .await
-        .map_err(|e| Error::Ssh(e.to_string()))?;
+    // Disconnect SSH session (non-fatal if it fails)
+    if let Err(e) = session.disconnect().await {
+        diag.warn(Warning::ssh_disconnect(format!(
+            "SSH disconnect failed for {}: {}",
+            server.host, e
+        )));
+    }
 
     result
 }

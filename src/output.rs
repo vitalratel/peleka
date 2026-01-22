@@ -102,6 +102,28 @@ impl Output {
             }
         }
     }
+
+    /// Print a warning message (non-fatal issues).
+    pub fn warning(&self, message: &str) {
+        match self.mode {
+            OutputMode::Normal => {
+                eprintln!("Warning: {message}");
+            }
+            OutputMode::Quiet => {
+                // Suppress warnings in quiet mode
+            }
+            OutputMode::Json => {
+                let event = JsonEvent {
+                    event: "warning",
+                    message,
+                    duration_secs: None,
+                };
+                if let Ok(json) = serde_json::to_string(&event) {
+                    eprintln!("{json}");
+                }
+            }
+        }
+    }
 }
 
 #[derive(Serialize)]

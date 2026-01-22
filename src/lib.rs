@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod deploy;
+pub mod diagnostics;
 pub mod error;
 pub mod hooks;
 pub mod output;
