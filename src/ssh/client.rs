@@ -354,14 +354,22 @@ impl Session {
             .path()
             .ok_or_else(|| Error::SocketForwardFailed("socket path is not valid UTF-8".to_string()))?
             .to_string();
-        self.forwarders.lock().unwrap().push(forward_handle);
+        self.forwarders
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push(forward_handle);
         Ok(path)
     }
 
     /// Disconnect the session.
     pub async fn disconnect(self) -> Result<()> {
         // Stop all forwarders first (drain to Vec to release lock before await)
-        let forwarders: Vec<_> = self.forwarders.lock().unwrap().drain(..).collect();
+        let forwarders: Vec<_> = self
+            .forwarders
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .drain(..)
+            .collect();
         for forwarder in forwarders {
             forwarder.stop().await;
         }

@@ -34,7 +34,7 @@ pub fn test_config(service_name: &str) -> peleka::config::Config {
 /// Detect the Podman socket path on a remote host via SSH session.
 /// Checks for rootful socket first, then falls back to rootless.
 #[allow(dead_code)]
-pub async fn detect_podman_socket(session: &mut peleka::ssh::Session) -> String {
+pub async fn detect_podman_socket(session: &peleka::ssh::Session) -> String {
     let rootful_socket = "/run/podman/podman.sock";
     let check_result = session
         .exec(&format!("test -S {} && echo exists", rootful_socket))
@@ -75,6 +75,14 @@ pub fn init_tracing() {
 pub fn test_key_path() -> String {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     format!("{}/tests/fixtures/test_key", manifest_dir)
+}
+
+/// Get SSH config for the shared Podman test container.
+#[allow(dead_code)]
+pub async fn podman_session_config() -> peleka::ssh::SessionConfig {
+    podman_container::shared_podman_container()
+        .await
+        .session_config()
 }
 
 /// Create a tar archive of a Docker build context directory.

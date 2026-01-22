@@ -5,25 +5,18 @@ mod support;
 
 use peleka::deploy::{Deployment, detect_orphans};
 use peleka::runtime::{ContainerOps, NetworkOps, RuntimeType};
-use peleka::ssh::{Session, SessionConfig};
-
-/// Get SSH config for the shared Podman test container.
-async fn podman_session_config() -> SessionConfig {
-    support::podman_container::shared_podman_container()
-        .await
-        .session_config()
-}
+use peleka::ssh::Session;
 
 /// Test: ensure_network creates network if it doesn't exist.
 #[tokio::test]
 async fn ensure_network_creates_if_not_exists() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -89,13 +82,13 @@ async fn ensure_network_creates_if_not_exists() {
 /// Test: First deployment creates blue container.
 #[tokio::test]
 async fn first_deployment_creates_blue_container() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -150,13 +143,13 @@ async fn first_deployment_creates_blue_container() {
 /// Test: Detect orphans finds containers not in known list.
 #[tokio::test]
 async fn detect_orphans_finds_unknown_containers() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 

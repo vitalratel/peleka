@@ -3,30 +3,23 @@
 
 mod support;
 
-use peleka::ssh::{Session, SessionConfig};
+use peleka::ssh::Session;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
-
-/// Get SSH config for the shared Podman test container.
-async fn podman_session_config() -> SessionConfig {
-    support::podman_container::shared_podman_container()
-        .await
-        .session_config()
-}
 
 /// Test: Forward local socket to remote Podman socket and ping API.
 /// Expected: Can send HTTP request through forwarded socket.
 #[tokio::test]
 async fn forward_to_podman_socket() {
     support::init_tracing();
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
     // Detect the remote Podman socket path (rootful or rootless)
-    let remote_socket = support::detect_podman_socket(&mut session).await;
+    let remote_socket = support::detect_podman_socket(&session).await;
 
     // Start socket forwarding - returns local socket path
     let local_socket_path = session
@@ -71,13 +64,13 @@ async fn forward_to_podman_socket() {
 /// Expected: Local socket is removed after session ends.
 #[tokio::test]
 async fn forward_socket_cleanup_on_disconnect() {
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let remote_socket = support::detect_podman_socket(&mut session).await;
+    let remote_socket = support::detect_podman_socket(&session).await;
 
     let local_socket_path = session
         .forward_socket(&remote_socket)
@@ -110,13 +103,13 @@ async fn forward_socket_cleanup_on_disconnect() {
 /// Expected: Can make multiple sequential requests.
 #[tokio::test]
 async fn forward_multiple_connections() {
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let remote_socket = support::detect_podman_socket(&mut session).await;
+    let remote_socket = support::detect_podman_socket(&session).await;
 
     let local_socket_path = session
         .forward_socket(&remote_socket)

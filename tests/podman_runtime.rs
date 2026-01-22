@@ -45,11 +45,11 @@ async fn runtime_info() {
         .await
         .session_config();
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -74,11 +74,11 @@ async fn runtime_ping() {
         .await
         .session_config();
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 

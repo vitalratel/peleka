@@ -1,11 +1,10 @@
 // ABOUTME: State transition methods for deployment orchestration.
 // ABOUTME: Each method consumes self and returns the next state on success.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::config::Config;
+use crate::config::{resolve_env_map, Config};
 use crate::runtime::{
     ContainerConfig, ContainerOps, ImageOps, NetworkConfig as RuntimeNetworkConfig, NetworkOps,
     RegistryAuth, RestartPolicyConfig, VolumeMount,
@@ -63,8 +62,7 @@ impl<S> Deployment<S> {
 
     /// Get the network alias for the service.
     fn service_alias(&self) -> NetworkAlias {
-        // The service name is the network alias for discovery
-        NetworkAlias::new(self.config.service.as_str()).expect("service name should be valid alias")
+        self.config.service.as_alias()
     }
 
     /// Internal helper for rollback - stops and removes new container.
@@ -73,9 +71,12 @@ impl<S> Deployment<S> {
         runtime: &R,
     ) -> Result<Deployment<Initialized>, DeployError> {
         if let Some(container_id) = &self.new_container {
-            let _ = runtime
+            if let Err(e) = runtime
                 .stop_container(container_id, Duration::from_secs(10))
-                .await;
+                .await
+            {
+                tracing::warn!("Failed to stop container during rollback: {}", e);
+            }
             runtime.remove_container(container_id, true).await?;
         }
 
@@ -167,7 +168,7 @@ impl Deployment<ImagePulled> {
         self,
         runtime: &R,
     ) -> Result<Deployment<ContainerStarted>, DeployError> {
-        let config = self.build_container_config();
+        let config = self.build_container_config()?;
         let container_id = runtime.create_container(&config).await?;
 
         // Start the container
@@ -181,7 +182,7 @@ impl Deployment<ImagePulled> {
     }
 
     /// Build container configuration from deployment config.
-    fn build_container_config(&self) -> ContainerConfig {
+    fn build_container_config(&self) -> Result<ContainerConfig, DeployError> {
         let mut labels = self.config.labels.clone();
         labels.insert(
             "peleka.service".to_string(),
@@ -212,13 +213,9 @@ impl Deployment<ImagePulled> {
             .filter_map(|p| parse_port_mapping(p))
             .collect();
 
-        // Convert env values to resolved strings
-        let env: HashMap<String, String> = self
-            .config
-            .env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.resolve().unwrap_or_default()))
-            .collect();
+        // Resolve environment variables (fails if required var is missing)
+        let env = resolve_env_map(&self.config.env)
+            .map_err(|e| DeployError::ConfigError(e.to_string()))?;
 
         // Convert restart policy
         let restart_policy = match &self.config.restart {
@@ -247,7 +244,7 @@ impl Deployment<ImagePulled> {
         // Network aliases - include service name for discovery
         let network_aliases = vec![self.service_alias()];
 
-        ContainerConfig {
+        Ok(ContainerConfig {
             name: self.container_name(),
             image: self.config.image.clone(),
             env,
@@ -271,7 +268,7 @@ impl Deployment<ImagePulled> {
             stop_timeout: self.config.stop.as_ref().map(|s| s.timeout),
             network: self.config.network.as_ref().map(|_| self.network_name()),
             network_aliases,
-        }
+        })
     }
 }
 
@@ -415,10 +412,13 @@ impl Deployment<HealthChecked> {
 
         // If there's an old container, disconnect it from the network first
         if let Some(old_container_id) = &self.old_container {
-            // Best effort: disconnect old container (may already be disconnected)
-            let _ = runtime
+            if let Err(e) = runtime
                 .disconnect_from_network(old_container_id, network_id)
-                .await;
+                .await
+            {
+                // Best effort: old container may already be disconnected
+                tracing::debug!("Failed to disconnect old container from network: {}", e);
+            }
         }
 
         // Connect new container to network with the service alias.

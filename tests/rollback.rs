@@ -5,17 +5,10 @@ mod support;
 
 use peleka::deploy::{Deployment, manual_rollback};
 use peleka::runtime::{ContainerFilters, ContainerOps, NetworkOps, RuntimeType};
-use peleka::ssh::{Session, SessionConfig};
+use peleka::ssh::Session;
 use peleka::types::ServiceName;
 use std::collections::HashMap;
 use std::time::Duration;
-
-/// Get SSH config for the shared Podman test container.
-async fn podman_session_config() -> SessionConfig {
-    support::podman_container::shared_podman_container()
-        .await
-        .session_config()
-}
 
 /// Helper to find containers for a service and separate by running state.
 async fn find_service_containers(
@@ -49,13 +42,13 @@ async fn find_service_containers(
 /// Test: Manual rollback swaps active and previous containers.
 #[tokio::test]
 async fn manual_rollback_swaps_containers() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -166,13 +159,13 @@ async fn manual_rollback_swaps_containers() {
 /// Test: Rollback fails if no previous container exists.
 #[tokio::test]
 async fn rollback_fails_without_previous() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -236,13 +229,13 @@ async fn rollback_fails_without_previous() {
 /// Test: Double rollback swaps back (ping-pong).
 #[tokio::test]
 async fn double_rollback_swaps_back() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 

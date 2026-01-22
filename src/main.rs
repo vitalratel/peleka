@@ -58,11 +58,11 @@ async fn run(cli: Cli, output: Output) -> Result<()> {
             image,
             force,
         } => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
+            let cwd = env::current_dir()?;
             config::init_config(&cwd, service.as_deref(), image.as_deref(), force)
         }
         Commands::Deploy { destination, force } => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
+            let cwd = env::current_dir()?;
             let config = Config::discover(&cwd)?;
 
             // Apply destination overrides if specified
@@ -75,7 +75,7 @@ async fn run(cli: Cli, output: Output) -> Result<()> {
             deploy(config, force, output).await
         }
         Commands::Rollback { destination } => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
+            let cwd = env::current_dir()?;
             let config = Config::discover(&cwd)?;
 
             // Apply destination overrides if specified
@@ -91,7 +91,7 @@ async fn run(cli: Cli, output: Output) -> Result<()> {
             destination,
             command,
         } => {
-            let cwd = env::current_dir().expect("Failed to get current directory");
+            let cwd = env::current_dir()?;
             let config = Config::discover(&cwd)?;
 
             // Apply destination overrides if specified
@@ -113,7 +113,7 @@ async fn deploy(config: Config, force: bool, mut output: Output) -> Result<()> {
     }
 
     output.start_timer();
-    let cwd = env::current_dir().expect("Failed to get current directory");
+    let cwd = env::current_dir()?;
     let hook_runner = HookRunner::new(&cwd);
 
     output.progress(&format!(
@@ -260,6 +260,7 @@ async fn exec_on_server(
         attach_stderr: true,
         tty: false,
         privileged: false,
+        timeout: None, // No timeout for CLI exec commands
     };
 
     // Execute command

@@ -232,6 +232,9 @@ pub struct ExecConfig {
     pub tty: bool,
     /// Run in privileged mode.
     pub privileged: bool,
+    /// Maximum time to wait for command completion (Podman only).
+    /// Defaults to 5 minutes. Set to None for no timeout.
+    pub timeout: Option<std::time::Duration>,
 }
 
 impl Default for ExecConfig {
@@ -246,6 +249,7 @@ impl Default for ExecConfig {
             attach_stderr: true,
             tty: false,
             privileged: false,
+            timeout: Some(std::time::Duration::from_secs(300)), // 5 minutes default
         }
     }
 }

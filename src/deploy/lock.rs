@@ -39,9 +39,15 @@ impl LockInfo {
         age.num_hours() >= 1
     }
 
-    /// Path to the lock file for a service.
+    /// Path to the lock directory for a service.
+    /// Uses a directory (not file) because mkdir is atomic and race-free.
     pub fn lock_path(service: &ServiceName) -> String {
         format!("/tmp/peleka-deploy-{}.lock", service)
+    }
+
+    /// Path to the lock info file inside the lock directory.
+    pub fn lock_info_path(service: &ServiceName) -> String {
+        format!("{}/info", Self::lock_path(service))
     }
 }
 
@@ -62,6 +68,7 @@ impl std::fmt::Debug for DeployLock<'_> {
 impl<'a> DeployLock<'a> {
     /// Acquire a deploy lock for the given service.
     ///
+    /// Uses mkdir for atomic lock acquisition (no TOCTOU race condition).
     /// Returns error if lock is already held by another process.
     /// Auto-breaks stale locks (>1 hour) with a warning.
     pub async fn acquire(
@@ -70,89 +77,153 @@ impl<'a> DeployLock<'a> {
         force: bool,
     ) -> Result<Self, DeployError> {
         let lock_path = LockInfo::lock_path(service);
+        let lock_info_path = LockInfo::lock_info_path(service);
 
-        // Check if lock file exists
-        if session
-            .file_exists(&lock_path)
-            .await
-            .map_err(|e| DeployError::LockError(format!("failed to check lock file: {}", e)))?
-        {
-            // Read existing lock info
-            let output = session
-                .exec(&format!("cat '{}'", lock_path))
-                .await
-                .map_err(|e| DeployError::LockError(format!("failed to read lock file: {}", e)))?;
-
-            if !output.success() {
-                tracing::warn!("Failed to read lock file, attempting to acquire anyway");
-            } else if let Ok(existing_lock) = serde_json::from_str::<LockInfo>(&output.stdout) {
-                if force {
-                    // Force break the lock
-                    tracing::warn!(
-                        "Breaking lock held by {} (pid {}) since {}",
-                        existing_lock.holder,
-                        existing_lock.pid,
-                        existing_lock.started_at
-                    );
-                } else if existing_lock.is_stale() {
-                    // Auto-break stale lock
-                    tracing::warn!(
-                        "Auto-breaking stale lock held by {} (pid {}) since {}",
-                        existing_lock.holder,
-                        existing_lock.pid,
-                        existing_lock.started_at
-                    );
-                } else {
-                    // Lock is active, reject
-                    return Err(DeployError::LockHeld {
-                        holder: existing_lock.holder,
-                        pid: existing_lock.pid,
-                        started_at: existing_lock.started_at,
-                    });
-                }
-            } else {
-                // Lock file exists but couldn't parse JSON - corrupted, break it
-                tracing::warn!("Lock file corrupted, breaking it");
-            }
-        }
-
-        // Create new lock
+        // Prepare lock info
         let lock_info = LockInfo::new(service);
         let lock_json = serde_json::to_string(&lock_info)
             .map_err(|e| DeployError::LockError(format!("failed to serialize lock: {}", e)))?;
 
-        // Write lock file atomically (write to temp then rename)
-        let temp_path = format!("{}.tmp.{}", lock_path, std::process::id());
-        let write_cmd = format!(
-            "echo '{}' > '{}' && mv '{}' '{}'",
-            lock_json.replace('\'', "'\\''"),
-            temp_path,
-            temp_path,
-            lock_path
-        );
-
-        let output = session
-            .exec(&write_cmd)
+        // Try atomic lock acquisition using mkdir (fails if directory exists)
+        let mkdir_cmd = format!("mkdir '{}'", lock_path);
+        let mkdir_result = session
+            .exec(&mkdir_cmd)
             .await
-            .map_err(|e| DeployError::LockError(format!("failed to write lock file: {}", e)))?;
+            .map_err(|e| DeployError::LockError(format!("failed to create lock: {}", e)))?;
 
-        if !output.success() {
-            return Err(DeployError::LockError(format!(
-                "failed to create lock file: {}",
-                output.stderr
-            )));
+        if mkdir_result.success() {
+            // Successfully acquired lock - write our info
+            Self::write_lock_info(session, &lock_info_path, &lock_json).await?;
+            return Ok(Self {
+                session,
+                service: service.clone(),
+            });
         }
 
+        // Lock directory exists - check if we should break it
+        let should_break = Self::check_existing_lock(session, &lock_info_path, force).await?;
+
+        if !should_break {
+            // Lock is valid and held by someone else
+            let output = session.exec(&format!("cat '{}'", lock_info_path)).await;
+            if let Ok(output) = output {
+                if let Ok(existing) = serde_json::from_str::<LockInfo>(&output.stdout) {
+                    return Err(DeployError::LockHeld {
+                        holder: existing.holder,
+                        pid: existing.pid,
+                        started_at: existing.started_at,
+                    });
+                }
+            }
+            return Err(DeployError::LockError("lock held by another process".to_string()));
+        }
+
+        // Break the lock and retry
+        let rm_cmd = format!("rm -rf '{}'", lock_path);
+        session
+            .exec(&rm_cmd)
+            .await
+            .map_err(|e| DeployError::LockError(format!("failed to break lock: {}", e)))?;
+
+        // Retry atomic acquisition
+        let mkdir_result = session
+            .exec(&mkdir_cmd)
+            .await
+            .map_err(|e| DeployError::LockError(format!("failed to create lock: {}", e)))?;
+
+        if !mkdir_result.success() {
+            // Another process grabbed it between our rm and mkdir
+            return Err(DeployError::LockError(
+                "lock acquired by another process during break".to_string(),
+            ));
+        }
+
+        // Successfully acquired lock after breaking - write our info
+        Self::write_lock_info(session, &lock_info_path, &lock_json).await?;
         Ok(Self {
             session,
             service: service.clone(),
         })
     }
 
+    /// Write lock info to the info file inside the lock directory.
+    async fn write_lock_info(
+        session: &Session,
+        lock_info_path: &str,
+        lock_json: &str,
+    ) -> Result<(), DeployError> {
+        let write_cmd = format!(
+            "echo '{}' > '{}'",
+            lock_json.replace('\'', "'\\''"),
+            lock_info_path
+        );
+        let output = session
+            .exec(&write_cmd)
+            .await
+            .map_err(|e| DeployError::LockError(format!("failed to write lock info: {}", e)))?;
+
+        if !output.success() {
+            return Err(DeployError::LockError(format!(
+                "failed to write lock info: {}",
+                output.stderr
+            )));
+        }
+        Ok(())
+    }
+
+    /// Check if an existing lock should be broken (stale, forced, or corrupted).
+    async fn check_existing_lock(
+        session: &Session,
+        lock_info_path: &str,
+        force: bool,
+    ) -> Result<bool, DeployError> {
+        let output = session
+            .exec(&format!("cat '{}'", lock_info_path))
+            .await
+            .map_err(|e| DeployError::LockError(format!("failed to read lock info: {}", e)))?;
+
+        if !output.success() {
+            // Can't read lock info - corrupted, break it
+            tracing::warn!("Lock info unreadable, breaking lock");
+            return Ok(true);
+        }
+
+        match serde_json::from_str::<LockInfo>(&output.stdout) {
+            Ok(existing_lock) => {
+                if force {
+                    tracing::warn!(
+                        "Breaking lock held by {} (pid {}) since {}",
+                        existing_lock.holder,
+                        existing_lock.pid,
+                        existing_lock.started_at
+                    );
+                    Ok(true)
+                } else if existing_lock.is_stale() {
+                    tracing::warn!(
+                        "Auto-breaking stale lock held by {} (pid {}) since {}",
+                        existing_lock.holder,
+                        existing_lock.pid,
+                        existing_lock.started_at
+                    );
+                    Ok(true)
+                } else {
+                    // Lock is active and valid
+                    Ok(false)
+                }
+            }
+            Err(_) => {
+                // Lock info corrupted, break it
+                tracing::warn!("Lock info corrupted, breaking lock");
+                Ok(true)
+            }
+        }
+    }
+
     /// Release the lock.
     pub async fn release(self) -> Result<(), DeployError> {
         let lock_path = LockInfo::lock_path(&self.service);
-        let _ = self.session.exec(&format!("rm -f '{}'", lock_path)).await;
+        // Remove the lock directory and its contents
+        let _ = self.session.exec(&format!("rm -rf '{}'", lock_path)).await;
         Ok(())
     }
 }

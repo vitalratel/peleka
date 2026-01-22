@@ -1,6 +1,7 @@
 // ABOUTME: DNS-compatible service name validation.
 // ABOUTME: Ensures service names follow RFC 1123 label requirements.
 
+use super::network_alias::NetworkAlias;
 use std::fmt;
 use thiserror::Error;
 
@@ -60,6 +61,13 @@ impl ServiceName {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Convert to a NetworkAlias. This is infallible because ServiceName's
+    /// character set (lowercase alphanumeric + hyphen) is a subset of
+    /// NetworkAlias's allowed characters.
+    pub fn as_alias(&self) -> NetworkAlias {
+        NetworkAlias::new(&self.0).expect("ServiceName is always valid as NetworkAlias")
     }
 }
 

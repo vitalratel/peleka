@@ -90,14 +90,7 @@ fn rollback_from_health_checked_compiles() {
 // Integration Tests (require SSH_TEST_HOST)
 // =============================================================================
 
-use peleka::ssh::{Session, SessionConfig};
-
-/// Get SSH config for the shared Podman test container.
-async fn podman_session_config() -> SessionConfig {
-    support::podman_container::shared_podman_container()
-        .await
-        .session_config()
-}
+use peleka::ssh::Session;
 
 /// Test: Full deployment chain works end-to-end.
 #[tokio::test]
@@ -105,13 +98,13 @@ async fn full_deployment_chain() {
     use peleka::deploy::Deployment;
     use peleka::runtime::{NetworkOps, RuntimeType};
 
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -166,13 +159,13 @@ async fn container_start_failure_cleans_up() {
     use peleka::deploy::Deployment;
     use peleka::runtime::RuntimeType;
 
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 
@@ -208,13 +201,13 @@ async fn rollback_from_container_started_removes_container() {
     use peleka::deploy::Deployment;
     use peleka::runtime::{ContainerFilters, ContainerOps, RuntimeType};
 
-    let config = podman_session_config().await;
+    let config = support::podman_session_config().await;
 
-    let mut session = Session::connect(config)
+    let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Docker runtime");
 

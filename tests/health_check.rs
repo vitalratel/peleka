@@ -6,26 +6,19 @@ mod support;
 use peleka::config::HealthcheckConfig;
 use peleka::deploy::Deployment;
 use peleka::runtime::{ContainerOps, RuntimeType};
-use peleka::ssh::{Session, SessionConfig};
+use peleka::ssh::Session;
 use std::time::Duration;
-
-/// Get SSH config for the shared Podman test container.
-async fn podman_session_config() -> SessionConfig {
-    support::podman_container::shared_podman_container()
-        .await
-        .session_config()
-}
 
 /// Test: Health check passes when command succeeds.
 #[tokio::test]
 async fn health_check_passes() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 
@@ -69,13 +62,13 @@ async fn health_check_passes() {
 /// Test: Health check fails and rollback cleans up container.
 #[tokio::test]
 async fn health_check_fails_and_rollback() {
-    let ssh_config = podman_session_config().await;
+    let ssh_config = support::podman_session_config().await;
 
-    let mut session = Session::connect(ssh_config)
+    let session = Session::connect(ssh_config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&mut session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
         .await
         .expect("should create Podman runtime");
 

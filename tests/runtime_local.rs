@@ -417,6 +417,7 @@ async fn exec_command() {
         attach_stderr: true,
         tty: false,
         privileged: false,
+        timeout: None,
     };
 
     let result = runtime
@@ -453,6 +454,7 @@ async fn exec_command() {
         attach_stderr: true,
         tty: false,
         privileged: false,
+        timeout: None,
     };
 
     let result_env = runtime

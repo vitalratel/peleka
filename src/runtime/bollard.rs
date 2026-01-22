@@ -287,19 +287,30 @@ impl BollardRuntime {
             )));
         }
 
-        // Consume response body (it contains progress JSON)
+        // Consume response body (it contains progress JSON, possibly multiple lines)
         let body = resp.into_body().collect().await.map_err(|e| {
             ImageError::PullFailed(format!("failed to read response: {}", e))
         })?;
 
-        // Check for error in response
+        // Check for error in response by parsing JSON
         let body_bytes = body.to_bytes();
         let body_text = String::from_utf8_lossy(&body_bytes);
-        if body_text.contains("\"error\"") && !body_text.contains("\"error\":null") {
-            return Err(ImageError::PullFailed(format!(
-                "{}: {}",
-                image_name, body_text
-            )));
+
+        // libpod may return multiple JSON objects (one per line), check each
+        for line in body_text.lines() {
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(error) = json.get("error") {
+                    // Check if error is a non-empty, non-null string
+                    if let Some(err_str) = error.as_str() {
+                        if !err_str.is_empty() {
+                            return Err(ImageError::PullFailed(format!(
+                                "{}: {}",
+                                image_name, err_str
+                            )));
+                        }
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -312,7 +323,11 @@ impl BollardRuntime {
 
     /// Execute in detached mode and poll for completion.
     /// Used for Podman which has issues with attached exec streams not closing.
-    async fn exec_start_detached(&self, exec_id: &str) -> Result<ExecResult, ExecError> {
+    async fn exec_start_detached(
+        &self,
+        exec_id: &str,
+        timeout: Option<Duration>,
+    ) -> Result<ExecResult, ExecError> {
         let opts = StartExecOptions {
             detach: true,
             ..Default::default()
@@ -324,8 +339,7 @@ impl BollardRuntime {
             .map_err(map_exec_not_found_error)?;
 
         // Poll for completion
-        let poll_interval = std::time::Duration::from_millis(100);
-        let max_wait = std::time::Duration::from_secs(300); // 5 minute max
+        let poll_interval = Duration::from_millis(100);
         let start = std::time::Instant::now();
 
         loop {
@@ -338,8 +352,11 @@ impl BollardRuntime {
                 });
             }
 
-            if start.elapsed() > max_wait {
-                return Err(ExecError::Failed("exec timed out".to_string()));
+            // Check timeout if specified
+            if let Some(max_wait) = timeout {
+                if start.elapsed() > max_wait {
+                    return Err(ExecError::Failed("exec timed out".to_string()));
+                }
             }
 
             tokio::time::sleep(poll_interval).await;
@@ -1017,7 +1034,13 @@ impl ExecOps for BollardRuntime {
         // Create exec instance
         let exec_id = self.exec_create(container, config).await?;
 
-        // Start and get output
+        // Podman has issues with exec output streams not closing properly,
+        // causing attached mode to hang. Use detached mode + polling for Podman.
+        if self.runtime_type == RuntimeType::Podman {
+            return self.exec_start_detached(&exec_id, config.timeout).await;
+        }
+
+        // Docker: use attached mode via exec_start
         self.exec_start(&exec_id).await
     }
 
@@ -1053,13 +1076,8 @@ impl ExecOps for BollardRuntime {
     }
 
     async fn exec_start(&self, exec_id: &str) -> Result<ExecResult, ExecError> {
-        // Podman has issues with exec output streams not closing properly,
-        // causing attached mode to hang. Use detached mode + polling for Podman.
-        if self.runtime_type == RuntimeType::Podman {
-            return self.exec_start_detached(exec_id).await;
-        }
-
-        // Docker: use attached mode to capture stdout/stderr
+        // Note: Podman handling moved to exec() which passes timeout to exec_start_detached.
+        // This method is now only used for Docker's attached mode.
         let opts = StartExecOptions {
             detach: false,
             ..Default::default()
