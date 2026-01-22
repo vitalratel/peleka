@@ -239,7 +239,7 @@ impl Config {
                 user: Some("deploy".to_string()),
                 runtime: None,
                 socket: None,
-                trust_first_connection: true,
+                trust_first_connection: true, // Enable TOFU for convenience; consider pre-populating known_hosts for security
             }),
             ports: vec![],
             volumes: vec![],

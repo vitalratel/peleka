@@ -25,7 +25,7 @@ fn default_port() -> u16 {
 }
 
 fn default_trust_first_connection() -> bool {
-    true
+    false
 }
 
 impl ServerConfig {
@@ -62,7 +62,7 @@ impl ServerConfig {
             user: user_part.map(|s| s.to_string()),
             runtime: None,
             socket: None,
-            trust_first_connection: true,
+            trust_first_connection: default_trust_first_connection(),
         })
     }
 

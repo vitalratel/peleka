@@ -129,6 +129,11 @@ impl client::Handler for SshHandler {
             Ok(false) => {
                 // Host not in known_hosts
                 if self.trust_on_first_use {
+                    tracing::warn!(
+                        "Trust-On-First-Use: accepting unknown host key for {}:{}",
+                        self.host,
+                        self.port
+                    );
                     let learn_result = match &self.known_hosts_path {
                         Some(path) => {
                             learn_known_hosts_path(&self.host, self.port, server_public_key, path)
