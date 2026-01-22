@@ -106,6 +106,37 @@ servers:
         let err = Config::from_yaml(yaml).unwrap_err();
         assert!(err.to_string().contains("image"));
     }
+
+    #[test]
+    fn empty_servers_returns_error() {
+        let yaml = r#"
+service: myapp
+image: nginx:latest
+servers: []
+"#;
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("server")
+                || err.to_string().to_lowercase().contains("empty"),
+            "expected error about empty servers, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn missing_servers_returns_error() {
+        let yaml = r#"
+service: myapp
+image: nginx:latest
+"#;
+        let err = Config::from_yaml(yaml).unwrap_err();
+        assert!(
+            err.to_string().to_lowercase().contains("server")
+                || err.to_string().to_lowercase().contains("empty"),
+            "expected error about missing servers, got: {}",
+            err
+        );
+    }
 }
 
 mod server_parsing {

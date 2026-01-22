@@ -163,3 +163,34 @@ async fn file_exists_returns_false_for_nonexistent_file() {
         .await
         .expect("disconnect should succeed");
 }
+
+/// Test: Command times out when execution exceeds timeout.
+#[tokio::test]
+async fn command_timeout_returns_error() {
+    use std::time::Duration;
+
+    let container = shared_container().await;
+    let config = container.session_config();
+
+    let session = Session::connect(config)
+        .await
+        .expect("connection should succeed");
+
+    // Execute a sleep command with a very short timeout
+    let result = session
+        .exec_with_timeout("sleep 10", Duration::from_millis(100))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        matches!(err, Error::CommandTimeout(_)),
+        "expected CommandTimeout error, got: {:?}",
+        err
+    );
+
+    session
+        .disconnect()
+        .await
+        .expect("disconnect should succeed");
+}

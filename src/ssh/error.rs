@@ -21,6 +21,12 @@ pub enum Error {
     #[error("command execution failed: {0}")]
     CommandFailed(String),
 
+    #[error("command timed out after {0:?}")]
+    CommandTimeout(std::time::Duration),
+
+    #[error("channel closed unexpectedly without exit status")]
+    ChannelClosed,
+
     #[error("socket forwarding failed: {0}")]
     SocketForwardFailed(String),
 

@@ -175,7 +175,7 @@ servers: []
         .arg("deploy")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("no servers configured"));
+        .stderr(predicate::str::contains("at least one server is required"));
 }
 
 #[test]

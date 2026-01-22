@@ -15,6 +15,7 @@ pub use stop::StopConfig;
 
 use crate::error::{Error, Result};
 use crate::types::{ImageRef, ServiceName};
+use nonempty::NonEmpty;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -32,8 +33,8 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_image_ref")]
     pub image: ImageRef,
 
-    #[serde(default, deserialize_with = "deserialize_servers")]
-    pub servers: Vec<ServerConfig>,
+    #[serde(deserialize_with = "deserialize_servers")]
+    pub servers: NonEmpty<ServerConfig>,
 
     #[serde(default)]
     pub ports: Vec<String>,
@@ -81,7 +82,7 @@ pub struct Config {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Destination {
     #[serde(default, deserialize_with = "deserialize_servers_option")]
-    pub servers: Option<Vec<ServerConfig>>,
+    pub servers: Option<NonEmpty<ServerConfig>>,
 
     #[serde(default)]
     pub env: HashMap<String, EnvValue>,
@@ -223,14 +224,14 @@ impl Config {
         Config {
             service: ServiceName::new("my-app").unwrap(),
             image: ImageRef::parse("my-registry/my-app:latest").unwrap(),
-            servers: vec![ServerConfig {
+            servers: NonEmpty::new(ServerConfig {
                 host: "server.example.com".to_string(),
                 port: 22,
                 user: Some("deploy".to_string()),
                 runtime: None,
                 socket: None,
                 trust_first_connection: true,
-            }],
+            }),
             ports: vec![],
             volumes: vec![],
             env: HashMap::new(),
@@ -278,6 +279,7 @@ pub fn init_config(
 }
 
 fn generate_template_yaml(config: &Config) -> String {
+    let first_server = config.servers.first();
     format!(
         r#"service: {}
 image: {}
@@ -288,9 +290,9 @@ servers:
 "#,
         config.service,
         config.image,
-        config.servers[0].host,
-        config.servers[0].port,
-        config.servers[0].user.as_deref().unwrap_or("deploy")
+        first_server.host,
+        first_server.port,
+        first_server.user.as_deref().unwrap_or("deploy")
     )
 }
 
@@ -312,21 +314,26 @@ where
     ImageRef::parse(&s).map_err(serde::de::Error::custom)
 }
 
-fn deserialize_servers<'de, D>(deserializer: D) -> std::result::Result<Vec<ServerConfig>, D::Error>
+fn deserialize_servers<'de, D>(
+    deserializer: D,
+) -> std::result::Result<NonEmpty<ServerConfig>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     let values: Vec<ServerEntry> = Vec::deserialize(deserializer)?;
-    values
+    let servers = values
         .into_iter()
         .map(|entry| entry.into_server_config())
         .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(serde::de::Error::custom)
+        .map_err(serde::de::Error::custom)?;
+
+    NonEmpty::from_vec(servers)
+        .ok_or_else(|| serde::de::Error::custom("at least one server is required"))
 }
 
 fn deserialize_servers_option<'de, D>(
     deserializer: D,
-) -> std::result::Result<Option<Vec<ServerConfig>>, D::Error>
+) -> std::result::Result<Option<NonEmpty<ServerConfig>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -339,7 +346,11 @@ where
                 .map(|entry| entry.into_server_config())
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(serde::de::Error::custom)?;
-            Ok(Some(servers))
+
+            let nonempty = NonEmpty::from_vec(servers).ok_or_else(|| {
+                serde::de::Error::custom("destination servers list cannot be empty")
+            })?;
+            Ok(Some(nonempty))
         }
     }
 }

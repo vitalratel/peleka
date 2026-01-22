@@ -33,6 +33,8 @@ pub struct SessionConfig {
     /// Optional path to known_hosts file.
     /// If None, uses the default ~/.ssh/known_hosts.
     pub known_hosts_path: Option<PathBuf>,
+    /// Timeout for command execution (default: 5 minutes).
+    pub command_timeout: Duration,
 }
 
 impl SessionConfig {
@@ -44,6 +46,7 @@ impl SessionConfig {
             key_path: None,
             trust_on_first_use: false,
             known_hosts_path: None,
+            command_timeout: Duration::from_secs(300), // 5 minutes
         }
     }
 
@@ -64,6 +67,11 @@ impl SessionConfig {
 
     pub fn known_hosts_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.known_hosts_path = Some(path.into());
+        self
+    }
+
+    pub fn command_timeout(mut self, timeout: Duration) -> Self {
+        self.command_timeout = timeout;
         self
     }
 }
@@ -313,6 +321,23 @@ impl Session {
 
     /// Execute a command on the remote host.
     pub async fn exec(&self, command: &str) -> Result<CommandOutput> {
+        self.exec_with_timeout(command, self.config.command_timeout)
+            .await
+    }
+
+    /// Execute a command with a custom timeout.
+    pub async fn exec_with_timeout(
+        &self,
+        command: &str,
+        timeout: Duration,
+    ) -> Result<CommandOutput> {
+        match tokio::time::timeout(timeout, self.exec_inner(command)).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::CommandTimeout(timeout)),
+        }
+    }
+
+    async fn exec_inner(&self, command: &str) -> Result<CommandOutput> {
         let mut channel = self
             .handle
             .channel_open_session()
@@ -363,6 +388,12 @@ impl Session {
                 Some(_) => {}
                 None => break,
             }
+        }
+
+        // If the channel closed without providing an exit status, this indicates
+        // an abnormal termination (e.g., connection timeout, network issue)
+        if !got_exit_status {
+            return Err(Error::ChannelClosed);
         }
 
         Ok(CommandOutput {

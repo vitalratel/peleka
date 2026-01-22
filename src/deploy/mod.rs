@@ -12,7 +12,7 @@ mod transitions;
 pub use deployment::Deployment;
 pub use error::DeployError;
 pub use lock::{DeployLock, LockInfo};
-pub use orphans::{cleanup_orphans, detect_orphans};
+pub use orphans::{cleanup_orphans, detect_orphans, CleanupFailure, CleanupResult};
 pub use rollback::manual_rollback;
 pub use state::{Completed, ContainerStarted, CutOver, HealthChecked, ImagePulled, Initialized};
 pub use transitions::TransitionResult;
