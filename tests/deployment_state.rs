@@ -73,7 +73,10 @@ fn early_deployment_sizes_match() {
     let init_size = size_of::<Deployment<Initialized>>();
     let pulled_size = size_of::<Deployment<ImagePulled>>();
 
-    assert_eq!(init_size, pulled_size, "Early deployment sizes should match");
+    assert_eq!(
+        init_size, pulled_size,
+        "Early deployment sizes should match"
+    );
 }
 
 /// Test: Deployment<S> variants with container are larger than early ones.

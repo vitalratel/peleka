@@ -157,7 +157,7 @@ fn deploy_requires_config_file() {
         .arg("deploy")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("configuration file not found"));
+        .stderr(predicate::str::is_match("(?i)configuration file not found").unwrap());
 }
 
 #[test]
@@ -215,7 +215,7 @@ fn exec_requires_config_file() {
         .args(["exec", "echo", "hello"])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("configuration file not found"));
+        .stderr(predicate::str::is_match("(?i)configuration file not found").unwrap());
 }
 
 #[test]

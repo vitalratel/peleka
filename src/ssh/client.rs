@@ -2,6 +2,7 @@
 // ABOUTME: Handles connection, authentication, and command execution.
 
 use super::error::{Error, Result};
+use parking_lot::Mutex;
 use russh::client::{self, Config, Handle};
 use russh::keys::agent::client::AgentClient;
 use russh::keys::known_hosts::{
@@ -10,7 +11,6 @@ use russh::keys::known_hosts::{
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use std::path::PathBuf;
-use parking_lot::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UnixStream;
@@ -102,7 +102,12 @@ pub(crate) struct SshHandler {
 }
 
 impl SshHandler {
-    fn new(host: String, port: u16, trust_on_first_use: bool, known_hosts_path: Option<PathBuf>) -> Self {
+    fn new(
+        host: String,
+        port: u16,
+        trust_on_first_use: bool,
+        known_hosts_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             host,
             port,
@@ -418,7 +423,9 @@ impl Session {
                 .await?;
         let path = forward_handle
             .path()
-            .ok_or_else(|| Error::SocketForwardFailed("socket path is not valid UTF-8".to_string()))?
+            .ok_or_else(|| {
+                Error::SocketForwardFailed("socket path is not valid UTF-8".to_string())
+            })?
             .to_string();
         self.forwarders.lock().push(forward_handle);
         Ok(path)

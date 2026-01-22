@@ -1,8 +1,11 @@
 // ABOUTME: Application-wide error types for peleka.
-// ABOUTME: Uses thiserror for ergonomic error handling.
+// ABOUTME: Uses thiserror for ergonomic error handling with preserved rich types.
 
 use std::path::PathBuf;
 use thiserror::Error;
+
+use crate::deploy::DeployError;
+use crate::ssh;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -28,19 +31,37 @@ pub enum Error {
     Yaml(#[from] serde_yaml::Error),
 
     #[error("SSH error: {0}")]
-    Ssh(String),
+    Ssh(#[from] ssh::Error),
 
     #[error("runtime detection failed: {0}")]
     RuntimeDetection(String),
 
     #[error("deployment failed: {0}")]
-    Deploy(String),
+    Deploy(#[from] DeployError),
 
     #[error("no servers configured")]
     NoServers,
 
     #[error("hook failed: {0}")]
     Hook(String),
+}
+
+impl Error {
+    /// Returns the deployment error if this is a `Deploy` variant.
+    pub fn as_deploy_error(&self) -> Option<&DeployError> {
+        match self {
+            Error::Deploy(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    /// Returns the SSH error if this is an `Ssh` variant.
+    pub fn as_ssh_error(&self) -> Option<&ssh::Error> {
+        match self {
+            Error::Ssh(e) => Some(e),
+            _ => None,
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

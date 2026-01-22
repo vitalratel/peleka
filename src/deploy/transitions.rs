@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::config::{resolve_env_map, Config};
+use crate::config::{Config, resolve_env_map};
 use crate::runtime::{
     ContainerConfig, ContainerOps, ImageOps, NetworkConfig as RuntimeNetworkConfig, NetworkOps,
     RegistryAuth, RestartPolicyConfig, VolumeMount,
@@ -51,10 +51,7 @@ async fn rollback_container<R: ContainerOps>(
     container_id: &ContainerId,
     stop_timeout: Duration,
 ) -> Result<(), DeployError> {
-    if let Err(e) = runtime
-        .stop_container(container_id, stop_timeout)
-        .await
-    {
+    if let Err(e) = runtime.stop_container(container_id, stop_timeout).await {
         tracing::warn!("Failed to stop container during rollback: {}", e);
     }
     runtime
@@ -255,7 +252,11 @@ impl Deployment<ImagePulled> {
                 }),
             healthcheck,
             stop_timeout: self.config.stop.as_ref().map(|s| s.timeout),
-            network: self.config.network.as_ref().map(|_| self.network_name().to_string()),
+            network: self
+                .config
+                .network
+                .as_ref()
+                .map(|_| self.network_name().to_string()),
             network_aliases,
         })
     }
@@ -292,7 +293,7 @@ impl Deployment<ContainerStarted> {
                     config: self.config,
                     old_container: self.old_container,
                     state: HealthChecked(self.state.0),
-                })
+                });
             }
         };
 

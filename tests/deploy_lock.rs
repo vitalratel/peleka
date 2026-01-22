@@ -40,7 +40,9 @@ async fn lock_acquired_prevents_second_deployment() {
 
     let err = result.unwrap_err();
     assert_eq!(err.kind(), DeployErrorKind::LockHeld);
-    let info = err.lock_holder_info().expect("should have lock holder info");
+    let info = err
+        .lock_holder_info()
+        .expect("should have lock holder info");
     assert!(!info.holder.is_empty(), "holder should be set");
     assert!(info.pid > 0, "pid should be set");
 
@@ -81,10 +83,16 @@ async fn lock_held_returns_holder_info() {
 
     let err = result.unwrap_err();
     assert_eq!(err.kind(), DeployErrorKind::LockHeld);
-    let info = err.lock_holder_info().expect("should have lock holder info");
+    let info = err
+        .lock_holder_info()
+        .expect("should have lock holder info");
     // Verify holder info matches what we expect
     assert!(!info.holder.is_empty(), "holder hostname should be set");
-    assert_eq!(info.pid, std::process::id(), "pid should match current process");
+    assert_eq!(
+        info.pid,
+        std::process::id(),
+        "pid should match current process"
+    );
     // started_at should be recent (within last minute)
     let age = chrono::Utc::now() - info.started_at;
     assert!(age.num_seconds() < 60, "lock should be recent");

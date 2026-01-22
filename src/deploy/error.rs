@@ -70,8 +70,9 @@ impl DeployError {
             | InnerDeployError::ContainerStopFailedMsg { .. } => DeployErrorKind::ContainerStop,
             InnerDeployError::ContainerRemoveFailed { .. }
             | InnerDeployError::ContainerRemoveFailedMsg { .. } => DeployErrorKind::ContainerRemove,
-            InnerDeployError::NetworkFailed { .. }
-            | InnerDeployError::NetworkFailedMsg { .. } => DeployErrorKind::Network,
+            InnerDeployError::NetworkFailed { .. } | InnerDeployError::NetworkFailedMsg { .. } => {
+                DeployErrorKind::Network
+            }
             InnerDeployError::NetworkCreationFailed { .. } => DeployErrorKind::NetworkCreation,
             InnerDeployError::HealthCheckFailed { .. } => DeployErrorKind::HealthCheck,
             InnerDeployError::HealthCheckTimeout { .. } => DeployErrorKind::HealthCheckTimeout,
@@ -212,7 +213,8 @@ pub trait ContainerErrorExt<T> {
 
 impl<T> ContainerErrorExt<T> for Result<T, ContainerError> {
     fn context_container_create(self) -> Result<T, DeployError> {
-        self.context(ContainerCreateFailedSnafu).map_err(DeployError)
+        self.context(ContainerCreateFailedSnafu)
+            .map_err(DeployError)
     }
 
     fn context_container_start(self) -> Result<T, DeployError> {
@@ -224,7 +226,8 @@ impl<T> ContainerErrorExt<T> for Result<T, ContainerError> {
     }
 
     fn context_container_remove(self) -> Result<T, DeployError> {
-        self.context(ContainerRemoveFailedSnafu).map_err(DeployError)
+        self.context(ContainerRemoveFailedSnafu)
+            .map_err(DeployError)
     }
 }
 

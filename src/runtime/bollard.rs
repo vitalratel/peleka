@@ -227,7 +227,11 @@ impl BollardRuntime {
         let client =
             Docker::connect_with_unix(&info.socket_path, 120, bollard::API_DEFAULT_VERSION)
                 .map_err(|e| RuntimeInfoError::ConnectionFailed(e.to_string()))?;
-        Ok(Self::new_with_socket(client, info.runtime_type, info.socket_path.clone()))
+        Ok(Self::new_with_socket(
+            client,
+            info.runtime_type,
+            info.socket_path.clone(),
+        ))
     }
 
     /// Pull image using Podman's native libpod API with tlsVerify=false.
@@ -237,15 +241,15 @@ impl BollardRuntime {
             ImageError::PullFailed("socket path not available for libpod API".to_string())
         })?;
 
-        let stream = UnixStream::connect(socket_path).await.map_err(|e| {
-            ImageError::PullFailed(format!("failed to connect to socket: {}", e))
-        })?;
+        let stream = UnixStream::connect(socket_path)
+            .await
+            .map_err(|e| ImageError::PullFailed(format!("failed to connect to socket: {}", e)))?;
 
         let io = TokioIo::new(stream);
 
-        let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await.map_err(|e| {
-            ImageError::PullFailed(format!("HTTP handshake failed: {}", e))
-        })?;
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+            .await
+            .map_err(|e| ImageError::PullFailed(format!("HTTP handshake failed: {}", e)))?;
 
         // Spawn connection handler
         tokio::spawn(async move {
@@ -268,9 +272,10 @@ impl BollardRuntime {
             .body(http_body_util::Empty::<bytes::Bytes>::new())
             .map_err(|e| ImageError::PullFailed(format!("failed to build request: {}", e)))?;
 
-        let resp = sender.send_request(req).await.map_err(|e| {
-            ImageError::PullFailed(format!("request failed: {}", e))
-        })?;
+        let resp = sender
+            .send_request(req)
+            .await
+            .map_err(|e| ImageError::PullFailed(format!("request failed: {}", e)))?;
 
         use http_body_util::BodyExt;
 
@@ -288,9 +293,11 @@ impl BollardRuntime {
         }
 
         // Consume response body (it contains progress JSON, possibly multiple lines)
-        let body = resp.into_body().collect().await.map_err(|e| {
-            ImageError::PullFailed(format!("failed to read response: {}", e))
-        })?;
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| ImageError::PullFailed(format!("failed to read response: {}", e)))?;
 
         // Check for error in response by parsing JSON
         let body_bytes = body.to_bytes();

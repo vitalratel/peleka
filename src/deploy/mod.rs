@@ -11,11 +11,10 @@ mod transitions;
 
 pub use deployment::Deployment;
 pub use error::{
-    ContainerErrorExt, DeployError, DeployErrorKind, ImageErrorExt, LockHolderInfo,
-    NetworkErrorExt,
+    ContainerErrorExt, DeployError, DeployErrorKind, ImageErrorExt, LockHolderInfo, NetworkErrorExt,
 };
 pub use lock::{DeployLock, LockInfo};
-pub use orphans::{cleanup_orphans, detect_orphans, CleanupFailure, CleanupResult};
+pub use orphans::{CleanupFailure, CleanupResult, cleanup_orphans, detect_orphans};
 pub use rollback::manual_rollback;
 pub use state::{Completed, ContainerStarted, CutOver, HealthChecked, ImagePulled, Initialized};
 pub use transitions::TransitionResult;

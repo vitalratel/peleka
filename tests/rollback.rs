@@ -126,9 +126,14 @@ async fn manual_rollback_swaps_containers() {
     );
 
     // Manual rollback
-    manual_rollback(&runtime, &service_name, &network_id, deploy_config.stop_timeout())
-        .await
-        .expect("rollback should succeed");
+    manual_rollback(
+        &runtime,
+        &service_name,
+        &network_id,
+        deploy_config.stop_timeout(),
+    )
+    .await
+    .expect("rollback should succeed");
 
     // Verify: first is now running (active), second is now stopped (previous)
     let (running_after, stopped_after) =
@@ -207,7 +212,13 @@ async fn rollback_fails_without_previous() {
     let container_id = d6.deployed_container().clone();
 
     // Try rollback - should fail
-    let result = manual_rollback(&runtime, &service_name, &network_id, deploy_config.stop_timeout()).await;
+    let result = manual_rollback(
+        &runtime,
+        &service_name,
+        &network_id,
+        deploy_config.stop_timeout(),
+    )
+    .await;
     assert!(
         result.is_err(),
         "rollback should fail without previous container"
@@ -302,14 +313,24 @@ async fn double_rollback_swaps_back() {
     let second_container_id = d6.deployed_container().clone();
 
     // First rollback: second -> stopped, first -> running
-    manual_rollback(&runtime, &service_name, &network_id, deploy_config.stop_timeout())
-        .await
-        .expect("first rollback should succeed");
+    manual_rollback(
+        &runtime,
+        &service_name,
+        &network_id,
+        deploy_config.stop_timeout(),
+    )
+    .await
+    .expect("first rollback should succeed");
 
     // Second rollback: first -> stopped, second -> running (back to original)
-    manual_rollback(&runtime, &service_name, &network_id, deploy_config.stop_timeout())
-        .await
-        .expect("second rollback should succeed");
+    manual_rollback(
+        &runtime,
+        &service_name,
+        &network_id,
+        deploy_config.stop_timeout(),
+    )
+    .await
+    .expect("second rollback should succeed");
 
     // Verify: back to original state (second running, first stopped)
     let (running, stopped) = find_service_containers(&runtime, "test-rollback-pingpong").await;

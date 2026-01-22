@@ -120,7 +120,9 @@ impl<'a> DeployLock<'a> {
                     existing.started_at,
                 ));
             }
-            return Err(DeployError::lock_error("lock held by another process".to_string()));
+            return Err(DeployError::lock_error(
+                "lock held by another process".to_string(),
+            ));
         }
 
         // Break the lock and retry
@@ -148,10 +150,9 @@ impl<'a> DeployLock<'a> {
     /// Ensure the state directory exists on the remote server.
     async fn ensure_state_dir(session: &Session) -> Result<(), DeployError> {
         let cmd = format!("mkdir -p ~/{}", STATE_DIR);
-        let output = session
-            .exec(&cmd)
-            .await
-            .map_err(|e| DeployError::lock_error(format!("failed to create state directory: {}", e)))?;
+        let output = session.exec(&cmd).await.map_err(|e| {
+            DeployError::lock_error(format!("failed to create state directory: {}", e))
+        })?;
 
         if !output.success() {
             return Err(DeployError::lock_error(format!(

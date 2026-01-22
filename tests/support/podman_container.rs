@@ -47,7 +47,9 @@ fn cleanup_on_exit() {
         let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
             .unwrap_or_else(|_| format!("/run/user/{}", std::process::id()));
         let socket_path = format!("{}/podman/podman.sock", runtime_dir);
-        if let Ok(docker) = Docker::connect_with_socket(&socket_path, 120, bollard::API_DEFAULT_VERSION) {
+        if let Ok(docker) =
+            Docker::connect_with_socket(&socket_path, 120, bollard::API_DEFAULT_VERSION)
+        {
             let _ = docker
                 .stop_container(&info.container_id, None::<StopContainerOptions>)
                 .await;
@@ -153,8 +155,10 @@ impl PodmanContainer {
             .await?;
 
         // Create temp known_hosts file path for test isolation
-        let known_hosts_path =
-            std::env::temp_dir().join(format!("peleka-podman-test-{}-known_hosts", std::process::id()));
+        let known_hosts_path = std::env::temp_dir().join(format!(
+            "peleka-podman-test-{}-known_hosts",
+            std::process::id()
+        ));
 
         // Store container ID and known_hosts_path for cleanup
         let _ = CONTAINER_INFO.set(ContainerInfo {
