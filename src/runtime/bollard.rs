@@ -298,18 +298,15 @@ impl BollardRuntime {
 
         // libpod may return multiple JSON objects (one per line), check each
         for line in body_text.lines() {
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                if let Some(error) = json.get("error") {
-                    // Check if error is a non-empty, non-null string
-                    if let Some(err_str) = error.as_str() {
-                        if !err_str.is_empty() {
-                            return Err(ImageError::PullFailed(format!(
-                                "{}: {}",
-                                image_name, err_str
-                            )));
-                        }
-                    }
-                }
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line)
+                && let Some(error) = json.get("error")
+                && let Some(err_str) = error.as_str()
+                && !err_str.is_empty()
+            {
+                return Err(ImageError::PullFailed(format!(
+                    "{}: {}",
+                    image_name, err_str
+                )));
             }
         }
 
@@ -353,10 +350,10 @@ impl BollardRuntime {
             }
 
             // Check timeout if specified
-            if let Some(max_wait) = timeout {
-                if start.elapsed() > max_wait {
-                    return Err(ExecError::Failed("exec timed out".to_string()));
-                }
+            if let Some(max_wait) = timeout
+                && start.elapsed() > max_wait
+            {
+                return Err(ExecError::Failed("exec timed out".to_string()));
             }
 
             tokio::time::sleep(poll_interval).await;

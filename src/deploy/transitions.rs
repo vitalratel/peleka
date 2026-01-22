@@ -1,7 +1,6 @@
 // ABOUTME: State transition methods for deployment orchestration.
 // ABOUTME: Each method consumes self and returns the next state on success.
 
-use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::config::{resolve_env_map, Config};
@@ -23,26 +22,6 @@ pub type TransitionResult<T, S> = Result<Deployment<T>, (Deployment<S>, DeployEr
 // =============================================================================
 
 impl<S> Deployment<S> {
-    /// Internal helper to transition to a new state.
-    fn transition<T>(self) -> Deployment<T> {
-        Deployment {
-            config: self.config,
-            new_container: self.new_container,
-            old_container: self.old_container,
-            _state: PhantomData,
-        }
-    }
-
-    /// Internal helper to transition with a new container ID.
-    fn transition_with_new_container<T>(self, container_id: ContainerId) -> Deployment<T> {
-        Deployment {
-            config: self.config,
-            new_container: Some(container_id),
-            old_container: self.old_container,
-            _state: PhantomData,
-        }
-    }
-
     /// Generate container name for this deployment.
     fn container_name(&self) -> String {
         // Use blue/green naming for zero-downtime deployment
@@ -56,7 +35,7 @@ impl<S> Deployment<S> {
     }
 
     /// Get the network name to use.
-    fn network_name(&self) -> String {
+    fn network_name(&self) -> &str {
         self.config.network_name()
     }
 
@@ -64,29 +43,21 @@ impl<S> Deployment<S> {
     fn service_alias(&self) -> NetworkAlias {
         self.config.service.as_alias()
     }
+}
 
-    /// Internal helper for rollback - stops and removes new container.
-    async fn rollback_new_container<R: ContainerOps>(
-        self,
-        runtime: &R,
-    ) -> Result<Deployment<Initialized>, DeployError> {
-        if let Some(container_id) = &self.new_container {
-            if let Err(e) = runtime
-                .stop_container(container_id, Duration::from_secs(10))
-                .await
-            {
-                tracing::warn!("Failed to stop container during rollback: {}", e);
-            }
-            runtime.remove_container(container_id, true).await?;
-        }
-
-        Ok(Deployment {
-            config: self.config,
-            new_container: None,
-            old_container: self.old_container,
-            _state: PhantomData,
-        })
+/// Internal helper for rollback - stops and removes a container.
+async fn rollback_container<R: ContainerOps>(
+    runtime: &R,
+    container_id: &ContainerId,
+) -> Result<(), DeployError> {
+    if let Err(e) = runtime
+        .stop_container(container_id, Duration::from_secs(10))
+        .await
+    {
+        tracing::warn!("Failed to stop container during rollback: {}", e);
     }
+    runtime.remove_container(container_id, true).await?;
+    Ok(())
 }
 
 // =============================================================================
@@ -112,14 +83,14 @@ impl Deployment<Initialized> {
         let network_name = self.network_name();
 
         // Check if network already exists
-        if runtime.network_exists(&network_name).await.unwrap_or(false) {
+        if runtime.network_exists(network_name).await.unwrap_or(false) {
             // Network exists, return name as ID (Docker/Podman accept both)
-            return Ok(NetworkId::new(network_name));
+            return Ok(NetworkId::new(network_name.to_string()));
         }
 
         // Try to create the network
         let config = RuntimeNetworkConfig {
-            name: network_name.clone(),
+            name: network_name.to_string(),
             driver: Some("bridge".to_string()),
             labels: std::collections::HashMap::new(),
         };
@@ -127,11 +98,11 @@ impl Deployment<Initialized> {
         match runtime.create_network(&config).await {
             Ok(_) => {
                 // Return name as ID for consistency
-                Ok(NetworkId::new(network_name))
+                Ok(NetworkId::new(network_name.to_string()))
             }
             Err(NetworkError::AlreadyExists(_)) => {
                 // Race condition: network was created between check and create
-                Ok(NetworkId::new(network_name))
+                Ok(NetworkId::new(network_name.to_string()))
             }
             Err(e) => Err(DeployError::NetworkCreationFailed(e.to_string())),
         }
@@ -149,7 +120,11 @@ impl Deployment<Initialized> {
         auth: Option<&RegistryAuth>,
     ) -> Result<Deployment<ImagePulled>, DeployError> {
         runtime.pull_image(&self.config.image, auth).await?;
-        Ok(self.transition())
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: ImagePulled,
+        })
     }
 }
 
@@ -178,7 +153,11 @@ impl Deployment<ImagePulled> {
             return Err(DeployError::ContainerStartFailed(e.to_string()));
         }
 
-        Ok(self.transition_with_new_container(container_id))
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: ContainerStarted(container_id),
+        })
     }
 
     /// Build container configuration from deployment config.
@@ -266,7 +245,7 @@ impl Deployment<ImagePulled> {
                 }),
             healthcheck,
             stop_timeout: self.config.stop.as_ref().map(|s| s.timeout),
-            network: self.config.network.as_ref().map(|_| self.network_name()),
+            network: self.config.network.as_ref().map(|_| self.network_name().to_string()),
             network_aliases,
         })
     }
@@ -293,15 +272,18 @@ impl Deployment<ContainerStarted> {
         runtime: &R,
         timeout: Duration,
     ) -> TransitionResult<HealthChecked, ContainerStarted> {
-        let container_id = self
-            .new_container
-            .as_ref()
-            .expect("new container must exist");
+        let container_id = self.state.container_id();
 
         // If no healthcheck is configured, skip the check
         let healthcheck = match &self.config.healthcheck {
             Some(hc) => hc,
-            None => return Ok(self.transition()),
+            None => {
+                return Ok(Deployment {
+                    config: self.config,
+                    old_container: self.old_container,
+                    state: HealthChecked(self.state.0),
+                })
+            }
         };
 
         // Build the healthcheck command: ["sh", "-c", cmd]
@@ -327,7 +309,11 @@ impl Deployment<ContainerStarted> {
             match healthcheck_result {
                 Ok(Ok(true)) => {
                     // Healthy
-                    return Ok(self.transition());
+                    return Ok(Deployment {
+                        config: self.config,
+                        old_container: self.old_container,
+                        state: HealthChecked(self.state.0),
+                    });
                 }
                 Ok(Ok(false)) => {
                     // Unhealthy - decrement retries
@@ -384,7 +370,12 @@ impl Deployment<ContainerStarted> {
         self,
         runtime: &R,
     ) -> Result<Deployment<Initialized>, DeployError> {
-        self.rollback_new_container(runtime).await
+        rollback_container(runtime, self.state.container_id()).await?;
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: Initialized,
+        })
     }
 }
 
@@ -404,21 +395,17 @@ impl Deployment<HealthChecked> {
         runtime: &R,
         network_id: &NetworkId,
     ) -> Result<Deployment<CutOver>, DeployError> {
-        let new_container_id = self
-            .new_container
-            .as_ref()
-            .expect("new container must exist");
+        let new_container_id = self.state.container_id();
         let alias = self.service_alias();
 
         // If there's an old container, disconnect it from the network first
-        if let Some(old_container_id) = &self.old_container {
-            if let Err(e) = runtime
+        if let Some(old_container_id) = &self.old_container
+            && let Err(e) = runtime
                 .disconnect_from_network(old_container_id, network_id)
                 .await
-            {
-                // Best effort: old container may already be disconnected
-                tracing::debug!("Failed to disconnect old container from network: {}", e);
-            }
+        {
+            // Best effort: old container may already be disconnected
+            tracing::debug!("Failed to disconnect old container from network: {}", e);
         }
 
         // Connect new container to network with the service alias.
@@ -434,7 +421,11 @@ impl Deployment<HealthChecked> {
             }
         }
 
-        Ok(self.transition())
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: CutOver(self.state.0),
+        })
     }
 
     /// Rollback: stop and remove the new container.
@@ -447,7 +438,12 @@ impl Deployment<HealthChecked> {
         self,
         runtime: &R,
     ) -> Result<Deployment<Initialized>, DeployError> {
-        self.rollback_new_container(runtime).await
+        rollback_container(runtime, self.state.container_id()).await?;
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: Initialized,
+        })
     }
 }
 
@@ -500,7 +496,11 @@ impl Deployment<CutOver> {
             // becomes the "previous" version that can be restored.
         }
 
-        Ok(self.transition())
+        Ok(Deployment {
+            config: self.config,
+            old_container: self.old_container,
+            state: Completed(self.state.0),
+        })
     }
 }
 
@@ -511,9 +511,7 @@ impl Deployment<CutOver> {
 impl Deployment<Completed> {
     /// Get the final container ID of the new deployment.
     pub fn deployed_container(&self) -> &ContainerId {
-        self.new_container
-            .as_ref()
-            .expect("completed deployment must have new container")
+        self.state.container_id()
     }
 
     /// Consume the deployment and return the config.

@@ -112,7 +112,7 @@ async fn first_deployment_creates_blue_container() {
         .expect("start should succeed");
 
     // Get container info to verify labels
-    let container_id = d3.new_container().expect("should have container");
+    let container_id = d3.new_container();
     let info = runtime
         .inspect_container(container_id)
         .await
@@ -168,7 +168,7 @@ async fn detect_orphans_finds_unknown_containers() {
         .await
         .expect("start should succeed");
 
-    let orphan_container_id = d3.new_container().expect("should have container").clone();
+    let orphan_container_id = d3.new_container().clone();
 
     // Detect orphans with empty known list - should find our container
     let orphans = detect_orphans(&runtime, &service_name, &[])

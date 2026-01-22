@@ -4,11 +4,14 @@
 use super::error::{Error, Result};
 use russh::client::{self, Config, Handle};
 use russh::keys::agent::client::AgentClient;
-use russh::keys::known_hosts::{check_known_hosts, learn_known_hosts};
+use russh::keys::known_hosts::{
+    check_known_hosts, check_known_hosts_path, learn_known_hosts, learn_known_hosts_path,
+};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UnixStream;
 
@@ -27,6 +30,9 @@ pub struct SessionConfig {
     /// Whether to accept unknown hosts (Trust On First Use).
     /// If false, connection to unknown hosts will fail.
     pub trust_on_first_use: bool,
+    /// Optional path to known_hosts file.
+    /// If None, uses the default ~/.ssh/known_hosts.
+    pub known_hosts_path: Option<PathBuf>,
 }
 
 impl SessionConfig {
@@ -37,6 +43,7 @@ impl SessionConfig {
             user: user.into(),
             key_path: None,
             trust_on_first_use: false,
+            known_hosts_path: None,
         }
     }
 
@@ -52,6 +59,11 @@ impl SessionConfig {
 
     pub fn trust_on_first_use(mut self, tofu: bool) -> Self {
         self.trust_on_first_use = tofu;
+        self
+    }
+
+    pub fn known_hosts_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.known_hosts_path = Some(path.into());
         self
     }
 }
@@ -78,14 +90,16 @@ pub(crate) struct SshHandler {
     host: String,
     port: u16,
     trust_on_first_use: bool,
+    known_hosts_path: Option<PathBuf>,
 }
 
 impl SshHandler {
-    fn new(host: String, port: u16, trust_on_first_use: bool) -> Self {
+    fn new(host: String, port: u16, trust_on_first_use: bool, known_hosts_path: Option<PathBuf>) -> Self {
         Self {
             host,
             port,
             trust_on_first_use,
+            known_hosts_path,
         }
     }
 }
@@ -97,12 +111,23 @@ impl client::Handler for SshHandler {
         &mut self,
         server_public_key: &ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        match check_known_hosts(&self.host, self.port, server_public_key) {
+        let check_result = match &self.known_hosts_path {
+            Some(path) => check_known_hosts_path(&self.host, self.port, server_public_key, path),
+            None => check_known_hosts(&self.host, self.port, server_public_key),
+        };
+
+        match check_result {
             Ok(true) => Ok(true),
             Ok(false) => {
                 // Host not in known_hosts
                 if self.trust_on_first_use {
-                    if let Err(e) = learn_known_hosts(&self.host, self.port, server_public_key) {
+                    let learn_result = match &self.known_hosts_path {
+                        Some(path) => {
+                            learn_known_hosts_path(&self.host, self.port, server_public_key, path)
+                        }
+                        None => learn_known_hosts(&self.host, self.port, server_public_key),
+                    };
+                    if let Err(e) = learn_result {
                         tracing::warn!("Failed to save host key to known_hosts: {}", e);
                     }
                     Ok(true)
@@ -158,7 +183,12 @@ impl Session {
             ..Default::default()
         };
 
-        let handler = SshHandler::new(config.host.clone(), config.port, config.trust_on_first_use);
+        let handler = SshHandler::new(
+            config.host.clone(),
+            config.port,
+            config.trust_on_first_use,
+            config.known_hosts_path.clone(),
+        );
 
         // Connect
         let mut session = client::connect(
@@ -354,22 +384,14 @@ impl Session {
             .path()
             .ok_or_else(|| Error::SocketForwardFailed("socket path is not valid UTF-8".to_string()))?
             .to_string();
-        self.forwarders
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push(forward_handle);
+        self.forwarders.lock().push(forward_handle);
         Ok(path)
     }
 
     /// Disconnect the session.
     pub async fn disconnect(self) -> Result<()> {
         // Stop all forwarders first (drain to Vec to release lock before await)
-        let forwarders: Vec<_> = self
-            .forwarders
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .drain(..)
-            .collect();
+        let forwarders: Vec<_> = self.forwarders.lock().drain(..).collect();
         for forwarder in forwarders {
             forwarder.stop().await;
         }

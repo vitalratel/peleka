@@ -212,11 +212,11 @@ impl Config {
 
     /// Get the network name for this deployment.
     /// Uses configured network name or falls back to "peleka".
-    pub fn network_name(&self) -> String {
+    pub fn network_name(&self) -> &str {
         self.network
             .as_ref()
-            .map(|n| n.name.clone())
-            .unwrap_or_else(default_network_name)
+            .map(|n| n.name.as_str())
+            .unwrap_or("peleka")
     }
 
     pub fn template() -> Self {

@@ -173,4 +173,19 @@ mod id_tests {
         let id = PodId::new("pod789".to_string());
         assert_eq!(id.as_str(), "pod789");
     }
+
+    #[test]
+    fn id_serializes_as_plain_string() {
+        let id = ContainerId::new("abc123".to_string());
+        let json = serde_json::to_string(&id).unwrap();
+        // Should serialize as plain string, not {"value":"abc123"}
+        assert_eq!(json, "\"abc123\"");
+    }
+
+    #[test]
+    fn id_deserializes_from_plain_string() {
+        let json = "\"def456\"";
+        let id: ContainerId = serde_json::from_str(json).unwrap();
+        assert_eq!(id.as_str(), "def456");
+    }
 }

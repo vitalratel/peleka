@@ -91,7 +91,7 @@ async fn health_check_fails_and_rollback() {
         .await
         .expect("start should succeed");
 
-    let container_id = d3.new_container().expect("should have container").clone();
+    let container_id = d3.new_container().clone();
 
     let health_result = d3.health_check(&runtime, Duration::from_secs(10)).await;
 
@@ -99,15 +99,13 @@ async fn health_check_fails_and_rollback() {
     let (d3_back, _err) = health_result.expect_err("health check should fail");
 
     // Verify deployment still has container ID for rollback
-    assert_eq!(d3_back.new_container().cloned(), Some(container_id.clone()));
+    assert_eq!(d3_back.new_container(), &container_id);
 
     // Rollback should clean up
-    let d1_again = d3_back
+    let _d1_again = d3_back
         .rollback(&runtime)
         .await
         .expect("rollback should succeed");
-
-    assert!(d1_again.new_container().is_none());
 
     // Verify container was actually removed
     let inspect_result = runtime.inspect_container(&container_id).await;

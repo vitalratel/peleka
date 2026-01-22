@@ -21,6 +21,7 @@ humantime-serde = "1"
 russh = { version = "0.56", features = ["aws-lc-rs"] }
 russh-keys = "0.49"
 futures = "0.3"
+parking_lot = "0.12"
 bollard = { version = "0.20.0", features = ["time"] }
 hyper-util = { version = "0.1.19", features = ["tokio"] }
 urlencoding = "2.1.3"

@@ -21,6 +21,7 @@ const IMAGE_NAME: &str = "localhost/peleka-podman-ssh:test";
 /// Container info needed for cleanup.
 struct ContainerInfo {
     container_id: String,
+    known_hosts_path: std::path::PathBuf,
 }
 
 /// Shared container info for cleanup.
@@ -32,6 +33,10 @@ fn cleanup_on_exit() {
     let Some(info) = CONTAINER_INFO.get() else {
         return;
     };
+
+    // Clean up temp known_hosts file
+    let _ = std::fs::remove_file(&info.known_hosts_path);
+
     let Ok(rt) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -76,6 +81,7 @@ pub async fn shared_podman_container() -> &'static PodmanContainer {
 /// Running Podman container with SSH connection details.
 pub struct PodmanContainer {
     port: u16,
+    known_hosts_path: std::path::PathBuf,
 }
 
 impl PodmanContainer {
@@ -146,9 +152,14 @@ impl PodmanContainer {
             )
             .await?;
 
-        // Store container ID for cleanup
+        // Create temp known_hosts file path for test isolation
+        let known_hosts_path =
+            std::env::temp_dir().join(format!("peleka-podman-test-{}-known_hosts", std::process::id()));
+
+        // Store container ID and known_hosts_path for cleanup
         let _ = CONTAINER_INFO.set(ContainerInfo {
             container_id: container.id.clone(),
+            known_hosts_path: known_hosts_path.clone(),
         });
 
         // Start container
@@ -162,7 +173,10 @@ impl PodmanContainer {
         // Wait for SSH and Podman to be ready
         Self::wait_for_ready(port).await?;
 
-        Ok(Self { port })
+        Ok(Self {
+            port,
+            known_hosts_path,
+        })
     }
 
     /// Build the Podman+SSH image if not present.
@@ -209,6 +223,7 @@ impl PodmanContainer {
             .port(self.port)
             .key_path(super::test_key_path())
             .trust_on_first_use(true)
+            .known_hosts_path(&self.known_hosts_path)
     }
 
     /// Get the host's external IP address (first non-loopback IPv4).

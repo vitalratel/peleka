@@ -225,7 +225,7 @@ async fn rollback_from_container_started_removes_container() {
         .expect("start should succeed");
 
     // Get container ID before rollback
-    let container_id = d3.new_container().expect("should have container").clone();
+    let container_id = d3.new_container().clone();
 
     // Rollback
     let _d1_again = d3

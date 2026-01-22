@@ -321,7 +321,7 @@ async fn rollback_on_server(config: &Config, server: &ServerConfig, output: &Out
         .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
 
     // Get network ID
-    let network_id = peleka::types::NetworkId::new(config.network_name());
+    let network_id = peleka::types::NetworkId::new(config.network_name().to_string());
 
     // Perform rollback
     output.progress("  → Swapping containers...");

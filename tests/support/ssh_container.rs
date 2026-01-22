@@ -20,6 +20,7 @@ const TEST_USER: &str = "testuser";
 /// Container info needed for cleanup.
 struct ContainerInfo {
     container_id: String,
+    known_hosts_path: std::path::PathBuf,
 }
 
 /// Shared container info for cleanup.
@@ -31,6 +32,10 @@ fn cleanup_on_exit() {
     let Some(info) = CONTAINER_INFO.get() else {
         return;
     };
+
+    // Clean up temp known_hosts file
+    let _ = std::fs::remove_file(&info.known_hosts_path);
+
     let Ok(rt) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -72,6 +77,7 @@ pub async fn shared_container() -> &'static SshContainer {
 /// Running SSH container with connection details.
 pub struct SshContainer {
     port: u16,
+    known_hosts_path: std::path::PathBuf,
 }
 
 impl SshContainer {
@@ -124,9 +130,14 @@ impl SshContainer {
             )
             .await?;
 
-        // Store container ID for cleanup
+        // Create temp known_hosts file path for test isolation
+        let known_hosts_path =
+            std::env::temp_dir().join(format!("peleka-test-{}-known_hosts", std::process::id()));
+
+        // Store container ID and known_hosts_path for cleanup
         let _ = CONTAINER_INFO.set(ContainerInfo {
             container_id: container.id.clone(),
+            known_hosts_path: known_hosts_path.clone(),
         });
 
         // Start container
@@ -140,7 +151,10 @@ impl SshContainer {
         // Wait for SSH to be ready
         Self::wait_for_ssh(port).await?;
 
-        Ok(Self { port })
+        Ok(Self {
+            port,
+            known_hosts_path,
+        })
     }
 
     /// Get SessionConfig for connecting to this container.
@@ -149,6 +163,7 @@ impl SshContainer {
             .port(self.port)
             .key_path(super::test_key_path())
             .trust_on_first_use(true)
+            .known_hosts_path(&self.known_hosts_path)
     }
 
     async fn find_available_port() -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {
