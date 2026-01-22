@@ -73,6 +73,17 @@ fn handle_error(e: Error) -> ! {
                 }
                 std::process::exit(3);
             }
+            DeployErrorKind::ImagePullTimeout => {
+                if let Some(secs) = deploy_err.image_pull_timeout_seconds() {
+                    eprintln!("Error: Image pull timed out after {}s", secs);
+                    eprintln!(
+                        "       Tip: Increase image_pull_timeout in peleka.yml or check network"
+                    );
+                } else {
+                    eprintln!("Error: {e}");
+                }
+                std::process::exit(10);
+            }
             DeployErrorKind::NoPreviousDeployment => {
                 if let Some(service) = deploy_err.service_name() {
                     eprintln!(
@@ -145,28 +156,14 @@ async fn run(cli: Cli, output: Output) -> Result<()> {
         }
         Commands::Deploy { destination, force } => {
             let cwd = env::current_dir()?;
-            let config = Config::discover(&cwd)?;
-
-            // Apply destination overrides if specified
-            let config = if let Some(dest) = destination {
-                config.for_destination(&dest)?
-            } else {
-                config
-            };
-
+            let config =
+                Config::discover(&cwd)?.with_optional_destination(destination.as_deref())?;
             commands::deploy(config, force, output).await
         }
         Commands::Rollback { destination } => {
             let cwd = env::current_dir()?;
-            let config = Config::discover(&cwd)?;
-
-            // Apply destination overrides if specified
-            let config = if let Some(dest) = destination {
-                config.for_destination(&dest)?
-            } else {
-                config
-            };
-
+            let config =
+                Config::discover(&cwd)?.with_optional_destination(destination.as_deref())?;
             commands::rollback(config, output).await
         }
         Commands::Exec {
@@ -174,15 +171,8 @@ async fn run(cli: Cli, output: Output) -> Result<()> {
             command,
         } => {
             let cwd = env::current_dir()?;
-            let config = Config::discover(&cwd)?;
-
-            // Apply destination overrides if specified
-            let config = if let Some(dest) = destination {
-                config.for_destination(&dest)?
-            } else {
-                config
-            };
-
+            let config =
+                Config::discover(&cwd)?.with_optional_destination(destination.as_deref())?;
             commands::exec_command(config, command, output).await
         }
     }

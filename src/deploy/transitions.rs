@@ -113,17 +113,28 @@ impl Deployment<Initialized> {
     ///
     /// # Errors
     ///
-    /// Returns `DeployError::ImagePullFailed` if the image cannot be pulled.
+    /// Returns `DeployError::ImagePullFailed` if the image cannot be pulled,
+    /// or `DeployError::ImagePullTimeout` if the configured timeout is exceeded.
     #[must_use = "deployment state must be used"]
     pub async fn pull_image<R: ImageOps>(
         self,
         runtime: &R,
         auth: Option<&RegistryAuth>,
     ) -> Result<Deployment<ImagePulled>, DeployError> {
-        runtime
-            .pull_image(&self.config.image, auth)
-            .await
-            .context_image_pull()?;
+        let pull_future = runtime.pull_image(&self.config.image, auth);
+
+        match self.config.image_pull_timeout {
+            Some(timeout) => {
+                tokio::time::timeout(timeout, pull_future)
+                    .await
+                    .map_err(|_| DeployError::image_pull_timeout(timeout.as_secs()))?
+                    .context_image_pull()?;
+            }
+            None => {
+                pull_future.await.context_image_pull()?;
+            }
+        }
+
         Ok(Deployment {
             config: self.config,
             old_container: self.old_container,

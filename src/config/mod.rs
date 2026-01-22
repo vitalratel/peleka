@@ -57,6 +57,9 @@ pub struct Config {
     #[serde(default = "default_health_timeout", with = "humantime_serde")]
     pub health_timeout: Duration,
 
+    #[serde(default, with = "humantime_serde::option")]
+    pub image_pull_timeout: Option<Duration>,
+
     #[serde(default)]
     pub resources: Option<ResourcesConfig>,
 
@@ -163,11 +166,49 @@ impl Config {
 
         for path in &candidates {
             if path.exists() {
-                return Self::load(path);
+                let config = Self::load(path)?;
+                config.validate_placeholders()?;
+                return Ok(config);
             }
         }
 
         Err(Error::ConfigNotFound(dir.to_path_buf()))
+    }
+
+    /// Validate that placeholder values from the template have been customized.
+    fn validate_placeholders(&self) -> Result<()> {
+        // Error on placeholder server host - this would definitely fail
+        for server in self.servers.iter() {
+            if server.host == "server.example.com" {
+                return Err(Error::InvalidConfig(
+                    "server host 'server.example.com' is a placeholder - please configure a real server".to_string()
+                ));
+            }
+        }
+
+        // Warn on placeholder service name
+        if self.service.as_str() == "my-app" {
+            tracing::warn!("service name 'my-app' appears to be a placeholder");
+        }
+
+        // Warn on placeholder image references
+        let image_str = self.image.to_string();
+        if image_str.contains("my-registry") || image_str.contains("my-app") {
+            tracing::warn!(
+                "image '{}' appears to contain placeholder values",
+                image_str
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Apply destination overrides if specified, otherwise return self unchanged.
+    pub fn with_optional_destination(self, dest: Option<&str>) -> Result<Config> {
+        match dest {
+            Some(name) => self.for_destination(name),
+            None => Ok(self),
+        }
     }
 
     pub fn for_destination(&self, name: &str) -> Result<Config> {
@@ -248,6 +289,7 @@ impl Config {
             command: None,
             healthcheck: None,
             health_timeout: default_health_timeout(),
+            image_pull_timeout: None,
             resources: None,
             network: None,
             restart: RestartPolicy::default(),

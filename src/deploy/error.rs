@@ -13,6 +13,7 @@ use crate::runtime::{ContainerError, ImageError, NetworkError};
 #[non_exhaustive]
 pub enum DeployErrorKind {
     ImagePull,
+    ImagePullTimeout,
     ContainerCreate,
     ContainerStart,
     ContainerStop,
@@ -62,6 +63,7 @@ impl DeployError {
         match &self.0 {
             InnerDeployError::ImagePullFailed { .. }
             | InnerDeployError::ImagePullFailedMsg { .. } => DeployErrorKind::ImagePull,
+            InnerDeployError::ImagePullTimeout { .. } => DeployErrorKind::ImagePullTimeout,
             InnerDeployError::ContainerCreateFailed { .. }
             | InnerDeployError::ContainerCreateFailedMsg { .. } => DeployErrorKind::ContainerCreate,
             InnerDeployError::ContainerStartFailed { .. }
@@ -116,6 +118,14 @@ impl DeployError {
             _ => None,
         }
     }
+
+    /// Returns the timeout duration if this is an `ImagePullTimeout` error.
+    pub fn image_pull_timeout_seconds(&self) -> Option<u64> {
+        match &self.0 {
+            InnerDeployError::ImagePullTimeout { seconds } => Some(*seconds),
+            _ => None,
+        }
+    }
 }
 
 /// Internal error type with full context - not exposed in public API.
@@ -143,6 +153,9 @@ enum InnerDeployError {
     // Message-based variants (used via factory methods)
     #[snafu(display("failed to pull image: {message}"))]
     ImagePullFailedMsg { message: String },
+
+    #[snafu(display("image pull timed out after {seconds} seconds"))]
+    ImagePullTimeout { seconds: u64 },
 
     #[snafu(display("failed to create container: {message}"))]
     ContainerCreateFailedMsg { message: String },
@@ -247,6 +260,10 @@ impl DeployError {
         DeployError(InnerDeployError::ImagePullFailedMsg {
             message: message.into(),
         })
+    }
+
+    pub fn image_pull_timeout(seconds: u64) -> Self {
+        DeployError(InnerDeployError::ImagePullTimeout { seconds })
     }
 
     pub fn container_create_failed(message: impl Into<String>) -> Self {
