@@ -296,6 +296,9 @@ servers:
   - host: {}
     port: {}
     user: {}
+    # SSH host key verification (default: false for security)
+    # Set to true to enable Trust-On-First-Use, or pre-populate ~/.ssh/known_hosts
+    # trust_first_connection: true
 "#,
         config.service,
         config.image,

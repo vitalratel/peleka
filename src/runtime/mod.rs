@@ -3,11 +3,13 @@
 
 mod bollard;
 mod detection;
+mod error;
 pub mod traits;
 mod types;
 
 pub use bollard::{BollardRuntime, connect_via_session};
 pub use detection::{DetectionError, detect_local, detect_runtime};
+pub use error::{RuntimeError, RuntimeErrorKind};
 pub use types::{RuntimeConfig, RuntimeInfo, RuntimeType};
 
 // Re-export traits at runtime level for convenience

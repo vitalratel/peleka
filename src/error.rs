@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 use crate::deploy::DeployError;
+use crate::runtime::RuntimeError;
 use crate::ssh;
 
 #[derive(Debug, Error)]
@@ -33,8 +34,8 @@ pub enum Error {
     #[error("SSH error: {0}")]
     Ssh(#[from] ssh::Error),
 
-    #[error("runtime detection failed: {0}")]
-    RuntimeDetection(String),
+    #[error("runtime error: {0}")]
+    Runtime(#[from] RuntimeError),
 
     #[error("deployment failed: {0}")]
     Deploy(#[from] DeployError),
@@ -59,6 +60,14 @@ impl Error {
     pub fn as_ssh_error(&self) -> Option<&ssh::Error> {
         match self {
             Error::Ssh(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    /// Returns the runtime error if this is a `Runtime` variant.
+    pub fn as_runtime_error(&self) -> Option<&RuntimeError> {
+        match self {
+            Error::Runtime(e) => Some(e),
             _ => None,
         }
     }

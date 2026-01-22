@@ -6,7 +6,7 @@ use peleka::deploy::manual_rollback;
 use peleka::diagnostics::{Diagnostics, Warning};
 use peleka::error::{Error, Result};
 use peleka::output::Output;
-use peleka::runtime::{connect_via_session, detect_runtime};
+use peleka::runtime::{RuntimeError, connect_via_session, detect_runtime};
 use peleka::ssh::Session;
 
 /// Rollback to previous deployment on all configured servers.
@@ -55,7 +55,7 @@ async fn rollback_on_server(
     output.progress("  → Detecting runtime...");
     let runtime_info = detect_runtime(&session, Some(&server.runtime_config()))
         .await
-        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+        .map_err(RuntimeError::from)?;
 
     output.progress(&format!(
         "  → Found {} at {}",
@@ -65,7 +65,7 @@ async fn rollback_on_server(
     // Connect to runtime via SSH tunnel
     let runtime = connect_via_session(&session, runtime_info.runtime_type)
         .await
-        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+        .map_err(RuntimeError::from)?;
 
     // Get network ID
     let network_id = peleka::types::NetworkId::new(config.network_name().to_string());

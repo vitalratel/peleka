@@ -10,7 +10,8 @@ use peleka::error::{Error, Result};
 use peleka::hooks::{HookContext, HookPoint, HookRunner};
 use peleka::output::Output;
 use peleka::runtime::{
-    BollardRuntime, ContainerFilters, ContainerOps, connect_via_session, detect_runtime,
+    BollardRuntime, ContainerFilters, ContainerOps, RuntimeError, connect_via_session,
+    detect_runtime,
 };
 use peleka::ssh::Session;
 use std::env;
@@ -141,7 +142,7 @@ async fn deploy_to_server_inner(
     output.progress("  → Detecting runtime...");
     let runtime_info = detect_runtime(session, Some(&server.runtime_config()))
         .await
-        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+        .map_err(RuntimeError::from)?;
 
     output.progress(&format!(
         "  → Found {} at {}",
@@ -151,7 +152,7 @@ async fn deploy_to_server_inner(
     // Connect to runtime via SSH tunnel
     let runtime = connect_via_session(session, runtime_info.runtime_type)
         .await
-        .map_err(|e| Error::RuntimeDetection(e.to_string()))?;
+        .map_err(RuntimeError::from)?;
 
     // Find existing container for this service
     let old_container = find_existing_container(&runtime, &config.service).await?;

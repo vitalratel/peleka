@@ -47,6 +47,7 @@ async fn main() {
 /// Handle errors with programmatic error types and helpful hints.
 fn handle_error(e: Error) -> ! {
     use peleka::deploy::DeployErrorKind;
+    use peleka::runtime::RuntimeErrorKind;
 
     match &e {
         Error::Deploy(deploy_err) => match deploy_err.kind() {
@@ -106,6 +107,25 @@ fn handle_error(e: Error) -> ! {
             eprintln!("       Tip: Add servers to peleka.yml");
             std::process::exit(7);
         }
+        Error::Runtime(runtime_err) => match runtime_err.kind() {
+            RuntimeErrorKind::NoRuntimeFound => {
+                eprintln!("Error: No container runtime found");
+                eprintln!("       Tip: Install Docker or Podman on the target server");
+                std::process::exit(8);
+            }
+            RuntimeErrorKind::ConnectionFailed => {
+                eprintln!("Error: Failed to connect to container runtime");
+                if let Some(details) = runtime_err.connection_details() {
+                    eprintln!("       Details: {}", details);
+                }
+                eprintln!("       Tip: Check that the runtime socket is accessible");
+                std::process::exit(9);
+            }
+            _ => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        },
         _ => {
             eprintln!("Error: {e}");
             std::process::exit(1);
