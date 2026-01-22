@@ -10,7 +10,10 @@ mod state;
 mod transitions;
 
 pub use deployment::Deployment;
-pub use error::DeployError;
+pub use error::{
+    ContainerErrorExt, DeployError, DeployErrorKind, ImageErrorExt, LockHolderInfo,
+    NetworkErrorExt,
+};
 pub use lock::{DeployLock, LockInfo};
 pub use orphans::{cleanup_orphans, detect_orphans, CleanupFailure, CleanupResult};
 pub use rollback::manual_rollback;

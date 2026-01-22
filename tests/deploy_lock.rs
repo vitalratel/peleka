@@ -3,7 +3,7 @@
 
 mod support;
 
-use peleka::deploy::{DeployError, DeployLock, LockInfo};
+use peleka::deploy::{DeployErrorKind, DeployLock, LockInfo};
 use peleka::ssh::{Session, SessionConfig};
 use peleka::types::ServiceName;
 
@@ -38,13 +38,11 @@ async fn lock_acquired_prevents_second_deployment() {
     let result = DeployLock::acquire(&session2, &service, false).await;
     assert!(result.is_err(), "second lock should fail");
 
-    match result {
-        Err(DeployError::LockHeld { holder, pid, .. }) => {
-            assert!(!holder.is_empty(), "holder should be set");
-            assert!(pid > 0, "pid should be set");
-        }
-        other => panic!("expected LockHeld error, got {:?}", other),
-    }
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), DeployErrorKind::LockHeld);
+    let info = err.lock_holder_info().expect("should have lock holder info");
+    assert!(!info.holder.is_empty(), "holder should be set");
+    assert!(info.pid > 0, "pid should be set");
 
     // Release first lock
     lock.release().await.expect("release should succeed");
@@ -81,21 +79,15 @@ async fn lock_held_returns_holder_info() {
 
     let result = DeployLock::acquire(&session2, &service, false).await;
 
-    match result {
-        Err(DeployError::LockHeld {
-            holder,
-            pid,
-            started_at,
-        }) => {
-            // Verify holder info matches what we expect
-            assert!(!holder.is_empty(), "holder hostname should be set");
-            assert_eq!(pid, std::process::id(), "pid should match current process");
-            // started_at should be recent (within last minute)
-            let age = chrono::Utc::now() - started_at;
-            assert!(age.num_seconds() < 60, "lock should be recent");
-        }
-        other => panic!("expected LockHeld error, got {:?}", other),
-    }
+    let err = result.unwrap_err();
+    assert_eq!(err.kind(), DeployErrorKind::LockHeld);
+    let info = err.lock_holder_info().expect("should have lock holder info");
+    // Verify holder info matches what we expect
+    assert!(!info.holder.is_empty(), "holder hostname should be set");
+    assert_eq!(info.pid, std::process::id(), "pid should match current process");
+    // started_at should be recent (within last minute)
+    let age = chrono::Utc::now() - info.started_at;
+    assert!(age.num_seconds() < 60, "lock should be recent");
 
     lock.release().await.expect("cleanup");
     session2.disconnect().await.expect("disconnect");

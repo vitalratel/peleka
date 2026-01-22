@@ -11,7 +11,7 @@ use crate::runtime::{
 use crate::types::{ContainerId, NetworkAlias, NetworkId};
 
 use super::Deployment;
-use super::error::DeployError;
+use super::error::{ContainerErrorExt, DeployError, ImageErrorExt};
 use super::state::{Completed, ContainerStarted, CutOver, HealthChecked, ImagePulled, Initialized};
 
 /// Result type for transitions that may need rollback on failure.
@@ -56,7 +56,10 @@ async fn rollback_container<R: ContainerOps>(
     {
         tracing::warn!("Failed to stop container during rollback: {}", e);
     }
-    runtime.remove_container(container_id, true).await?;
+    runtime
+        .remove_container(container_id, true)
+        .await
+        .context_container_remove()?;
     Ok(())
 }
 
@@ -104,7 +107,7 @@ impl Deployment<Initialized> {
                 // Race condition: network was created between check and create
                 Ok(NetworkId::new(network_name.to_string()))
             }
-            Err(e) => Err(DeployError::NetworkCreationFailed(e.to_string())),
+            Err(e) => Err(DeployError::network_creation_failed(e.to_string())),
         }
     }
 
@@ -119,7 +122,10 @@ impl Deployment<Initialized> {
         runtime: &R,
         auth: Option<&RegistryAuth>,
     ) -> Result<Deployment<ImagePulled>, DeployError> {
-        runtime.pull_image(&self.config.image, auth).await?;
+        runtime
+            .pull_image(&self.config.image, auth)
+            .await
+            .context_image_pull()?;
         Ok(Deployment {
             config: self.config,
             old_container: self.old_container,
@@ -144,13 +150,16 @@ impl Deployment<ImagePulled> {
         runtime: &R,
     ) -> Result<Deployment<ContainerStarted>, DeployError> {
         let config = self.build_container_config()?;
-        let container_id = runtime.create_container(&config).await?;
+        let container_id = runtime
+            .create_container(&config)
+            .await
+            .context_container_create()?;
 
         // Start the container
         if let Err(e) = runtime.start_container(&container_id).await {
             // Clean up the created container on start failure
             let _ = runtime.remove_container(&container_id, true).await;
-            return Err(DeployError::ContainerStartFailed(e.to_string()));
+            return Err(DeployError::container_start_failed(e.to_string()));
         }
 
         Ok(Deployment {
@@ -194,7 +203,7 @@ impl Deployment<ImagePulled> {
 
         // Resolve environment variables (fails if required var is missing)
         let env = resolve_env_map(&self.config.env)
-            .map_err(|e| DeployError::ConfigError(e.to_string()))?;
+            .map_err(|e| DeployError::config_error(e.to_string()))?;
 
         // Convert restart policy
         let restart_policy = match &self.config.restart {
@@ -320,7 +329,7 @@ impl Deployment<ContainerStarted> {
                     if retries_remaining == 0 {
                         return Err((
                             self,
-                            DeployError::HealthCheckFailed(
+                            DeployError::health_check_failed(
                                 "container reported unhealthy after retries exhausted".to_string(),
                             ),
                         ));
@@ -332,7 +341,7 @@ impl Deployment<ContainerStarted> {
                     if retries_remaining == 0 {
                         return Err((
                             self,
-                            DeployError::HealthCheckFailed(format!(
+                            DeployError::health_check_failed(format!(
                                 "healthcheck exec failed: {}",
                                 e
                             )),
@@ -345,7 +354,7 @@ impl Deployment<ContainerStarted> {
                     if retries_remaining == 0 {
                         return Err((
                             self,
-                            DeployError::HealthCheckFailed(
+                            DeployError::health_check_failed(
                                 "healthcheck timeout after retries exhausted".to_string(),
                             ),
                         ));
@@ -357,7 +366,7 @@ impl Deployment<ContainerStarted> {
             tokio::time::sleep(poll_interval).await;
         }
 
-        Err((self, DeployError::HealthCheckTimeout(timeout.as_secs())))
+        Err((self, DeployError::health_check_timeout(timeout.as_secs())))
     }
 
     /// Rollback: stop and remove the new container.
@@ -417,7 +426,7 @@ impl Deployment<HealthChecked> {
         {
             let err_str = e.to_string().to_lowercase();
             if !err_str.contains("already connected") {
-                return Err(DeployError::NetworkFailed(e.to_string()));
+                return Err(DeployError::network_failed(e.to_string()));
             }
         }
 
@@ -490,7 +499,8 @@ impl Deployment<CutOver> {
             // Stop the old container but keep it for potential rollback
             runtime
                 .stop_container(old_container_id, stop_timeout)
-                .await?;
+                .await
+                .context_container_stop()?;
             // Note: We intentionally don't remove the old container to enable
             // manual rollback via `peleka rollback`. The stopped container
             // becomes the "previous" version that can be restored.

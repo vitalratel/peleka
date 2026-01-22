@@ -255,13 +255,14 @@ async fn rollback_from_container_started_removes_container() {
 // DeployError Tests
 // =============================================================================
 
-/// Test: DeployError type exists and has expected variants.
+/// Test: DeployError type exists and has expected factory methods.
 #[test]
 fn deploy_error_exists() {
-    use peleka::deploy::DeployError;
+    use peleka::deploy::{DeployError, DeployErrorKind};
 
     // Verify error type exists and can be formatted
-    let _: fn() -> DeployError = || DeployError::ImagePullFailed("test".to_string());
+    let err = DeployError::image_pull_failed("test");
+    assert_eq!(err.kind(), DeployErrorKind::ImagePull);
 }
 
 /// Test: DeployError implements std::error::Error.

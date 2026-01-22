@@ -37,29 +37,29 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
     let containers = runtime
         .list_containers(&filters)
         .await
-        .map_err(|e| DeployError::RollbackFailed(format!("failed to list containers: {}", e)))?;
+        .map_err(|e| DeployError::rollback_failed(format!("failed to list containers: {}", e)))?;
 
     // Separate running (active) and stopped (previous) containers
     let (running, stopped): (Vec<_>, Vec<_>) =
         containers.into_iter().partition(|c| c.state == "running");
 
     let active = running.into_iter().next().ok_or_else(|| {
-        DeployError::RollbackFailed("no running container found for service".to_string())
+        DeployError::rollback_failed("no running container found for service".to_string())
     })?;
 
     let previous = stopped
         .into_iter()
         .next()
-        .ok_or_else(|| DeployError::NoPreviousDeployment(service.to_string()))?;
+        .ok_or_else(|| DeployError::no_previous_deployment(service.to_string()))?;
 
     // Start the previous container
     runtime.start_container(&previous.id).await.map_err(|e| {
-        DeployError::RollbackFailed(format!("failed to start previous container: {}", e))
+        DeployError::rollback_failed(format!("failed to start previous container: {}", e))
     })?;
 
     // Get the service alias
     let alias = NetworkAlias::new(service.as_str()).map_err(|e| {
-        DeployError::RollbackFailed(format!("invalid service name for alias: {}", e))
+        DeployError::rollback_failed(format!("invalid service name for alias: {}", e))
     })?;
 
     // Disconnect active container from network
@@ -74,7 +74,7 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
     {
         let err_str = e.to_string().to_lowercase();
         if !err_str.contains("already connected") {
-            return Err(DeployError::RollbackFailed(format!(
+            return Err(DeployError::rollback_failed(format!(
                 "failed to connect previous container to network: {}",
                 e
             )));
@@ -86,7 +86,7 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
         .stop_container(&active.id, Duration::from_secs(10))
         .await
         .map_err(|e| {
-            DeployError::RollbackFailed(format!("failed to stop active container: {}", e))
+            DeployError::rollback_failed(format!("failed to stop active container: {}", e))
         })?;
 
     Ok(())

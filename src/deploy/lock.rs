@@ -82,7 +82,7 @@ impl<'a> DeployLock<'a> {
         // Prepare lock info
         let lock_info = LockInfo::new(service);
         let lock_json = serde_json::to_string(&lock_info)
-            .map_err(|e| DeployError::LockError(format!("failed to serialize lock: {}", e)))?;
+            .map_err(|e| DeployError::lock_error(format!("failed to serialize lock: {}", e)))?;
         let escaped_json = lock_json.replace('\'', "'\\''");
 
         // Try atomic lock acquisition using noclobber mode
@@ -96,7 +96,7 @@ impl<'a> DeployLock<'a> {
         let result = session
             .exec(&acquire_cmd)
             .await
-            .map_err(|e| DeployError::LockError(format!("failed to acquire lock: {}", e)))?;
+            .map_err(|e| DeployError::lock_error(format!("failed to acquire lock: {}", e)))?;
 
         if result.success() {
             return Ok(Self {
@@ -114,13 +114,13 @@ impl<'a> DeployLock<'a> {
             if let Ok(output) = output
                 && let Ok(existing) = serde_json::from_str::<LockInfo>(&output.stdout)
             {
-                return Err(DeployError::LockHeld {
-                    holder: existing.holder,
-                    pid: existing.pid,
-                    started_at: existing.started_at,
-                });
+                return Err(DeployError::lock_held(
+                    existing.holder,
+                    existing.pid,
+                    existing.started_at,
+                ));
             }
-            return Err(DeployError::LockError("lock held by another process".to_string()));
+            return Err(DeployError::lock_error("lock held by another process".to_string()));
         }
 
         // Break the lock and retry
@@ -131,10 +131,10 @@ impl<'a> DeployLock<'a> {
         let result = session
             .exec(&acquire_cmd)
             .await
-            .map_err(|e| DeployError::LockError(format!("failed to acquire lock: {}", e)))?;
+            .map_err(|e| DeployError::lock_error(format!("failed to acquire lock: {}", e)))?;
 
         if !result.success() {
-            return Err(DeployError::LockError(
+            return Err(DeployError::lock_error(
                 "lock acquired by another process during break".to_string(),
             ));
         }
@@ -151,10 +151,10 @@ impl<'a> DeployLock<'a> {
         let output = session
             .exec(&cmd)
             .await
-            .map_err(|e| DeployError::LockError(format!("failed to create state directory: {}", e)))?;
+            .map_err(|e| DeployError::lock_error(format!("failed to create state directory: {}", e)))?;
 
         if !output.success() {
-            return Err(DeployError::LockError(format!(
+            return Err(DeployError::lock_error(format!(
                 "failed to create state directory: {}",
                 output.stderr
             )));
@@ -171,7 +171,7 @@ impl<'a> DeployLock<'a> {
         let output = session
             .exec(&format!("cat \"{}\"", lock_path))
             .await
-            .map_err(|e| DeployError::LockError(format!("failed to read lock info: {}", e)))?;
+            .map_err(|e| DeployError::lock_error(format!("failed to read lock info: {}", e)))?;
 
         if !output.success() {
             // Can't read lock info - corrupted or doesn't exist, break it
