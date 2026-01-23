@@ -17,16 +17,3 @@ pub use logs::{LogError, LogLine, LogOps, LogOptions, LogStream};
 pub use network::{NetworkError, NetworkOps};
 pub use runtime_info::{RuntimeInfo, RuntimeInfoError};
 pub use shared_types::*;
-
-/// Full runtime capability - convenience trait combining all sub-traits.
-///
-/// Auto-implemented for any type that implements all the required traits.
-pub trait FullRuntime:
-    ImageOps + ContainerOps + NetworkOps + ExecOps + LogOps + RuntimeInfo
-{
-}
-
-impl<T> FullRuntime for T where
-    T: ImageOps + ContainerOps + NetworkOps + ExecOps + LogOps + RuntimeInfo
-{
-}

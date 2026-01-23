@@ -2,12 +2,13 @@
 // ABOUTME: Handles executing commands inside service containers.
 
 use super::deploy::find_existing_container;
+use super::runtime_connection::connect_to_runtime;
 use peleka::config::{Config, ServerConfig};
 use peleka::deploy::DeployError;
 use peleka::diagnostics::{Diagnostics, Warning};
 use peleka::error::{Error, Result};
 use peleka::output::Output;
-use peleka::runtime::{ExecConfig, ExecOps, RuntimeError, connect_via_session, detect_runtime};
+use peleka::runtime::{ExecConfig, ExecOps};
 use peleka::ssh::Session;
 
 /// Execute a command in the service container.
@@ -41,22 +42,7 @@ async fn exec_on_server(
     output.progress(&format!("  → Connecting to {}...", server.host));
 
     let session = Session::connect(server.ssh_session_config()).await?;
-
-    // Detect runtime
-    output.progress("  → Detecting runtime...");
-    let runtime_info = detect_runtime(&session, Some(&server.runtime_config()))
-        .await
-        .map_err(RuntimeError::from)?;
-
-    output.progress(&format!(
-        "  → Found {} at {}",
-        runtime_info.runtime_type, runtime_info.socket_path
-    ));
-
-    // Connect to runtime via SSH tunnel
-    let runtime = connect_via_session(&session, runtime_info.runtime_type)
-        .await
-        .map_err(RuntimeError::from)?;
+    let runtime = connect_to_runtime(&session, server, output).await?;
 
     // Find running container for this service
     let container_id = find_existing_container(&runtime, &config.service)

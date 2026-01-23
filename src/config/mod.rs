@@ -1,14 +1,17 @@
 // ABOUTME: Configuration types and parsing for peleka.yml.
 // ABOUTME: Handles YAML parsing, env var interpolation, and destination merging.
 
+mod deserialize;
 mod env_value;
 mod healthcheck;
+mod init;
 mod restart_policy;
 mod server;
 mod stop;
 
 pub use env_value::{EnvValue, resolve_env_map};
 pub use healthcheck::HealthcheckConfig;
+pub use init::init_config;
 pub use restart_policy::RestartPolicy;
 pub use server::ServerConfig;
 pub use stop::StopConfig;
@@ -27,13 +30,13 @@ pub const CONFIG_FILENAME_DIR: &str = ".peleka/config.yml";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
-    #[serde(deserialize_with = "deserialize_service_name")]
+    #[serde(deserialize_with = "deserialize::deserialize_service_name")]
     pub service: ServiceName,
 
-    #[serde(deserialize_with = "deserialize_image_ref")]
+    #[serde(deserialize_with = "deserialize::deserialize_image_ref")]
     pub image: ImageRef,
 
-    #[serde(deserialize_with = "deserialize_servers")]
+    #[serde(deserialize_with = "deserialize::deserialize_servers")]
     pub servers: NonEmpty<ServerConfig>,
 
     #[serde(default)]
@@ -84,7 +87,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Destination {
-    #[serde(default, deserialize_with = "deserialize_servers_option")]
+    #[serde(default, deserialize_with = "deserialize::deserialize_servers_option")]
     pub servers: Option<NonEmpty<ServerConfig>>,
 
     #[serde(default)]
@@ -297,130 +300,6 @@ impl Config {
             cleanup: None,
             logging: None,
             destinations: HashMap::new(),
-        }
-    }
-}
-
-pub fn init_config(
-    dir: &Path,
-    service: Option<&str>,
-    image: Option<&str>,
-    force: bool,
-) -> Result<()> {
-    let config_path = dir.join(CONFIG_FILENAME);
-
-    if config_path.exists() && !force {
-        return Err(Error::AlreadyExists(config_path));
-    }
-
-    let mut config = Config::template();
-
-    if let Some(s) = service {
-        config.service = ServiceName::new(s).map_err(|e| Error::InvalidConfig(e.to_string()))?;
-    }
-
-    if let Some(i) = image {
-        config.image = ImageRef::parse(i).map_err(|e| Error::InvalidConfig(e.to_string()))?;
-    }
-
-    let yaml = generate_template_yaml(&config);
-    std::fs::write(&config_path, yaml)?;
-
-    Ok(())
-}
-
-fn generate_template_yaml(config: &Config) -> String {
-    let first_server = config.servers.first();
-    format!(
-        r#"service: {}
-image: {}
-servers:
-  - host: {}
-    port: {}
-    user: {}
-    # SSH host key verification (default: false for security)
-    # Set to true to enable Trust-On-First-Use, or pre-populate ~/.ssh/known_hosts
-    # trust_first_connection: true
-"#,
-        config.service,
-        config.image,
-        first_server.host,
-        first_server.port,
-        first_server.user.as_deref().unwrap_or("deploy")
-    )
-}
-
-// Custom deserializers
-
-fn deserialize_service_name<'de, D>(deserializer: D) -> std::result::Result<ServiceName, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    ServiceName::new(&s).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_image_ref<'de, D>(deserializer: D) -> std::result::Result<ImageRef, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    ImageRef::parse(&s).map_err(serde::de::Error::custom)
-}
-
-fn deserialize_servers<'de, D>(
-    deserializer: D,
-) -> std::result::Result<NonEmpty<ServerConfig>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let values: Vec<ServerEntry> = Vec::deserialize(deserializer)?;
-    let servers = values
-        .into_iter()
-        .map(|entry| entry.into_server_config())
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(serde::de::Error::custom)?;
-
-    NonEmpty::from_vec(servers)
-        .ok_or_else(|| serde::de::Error::custom("at least one server is required"))
-}
-
-fn deserialize_servers_option<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<NonEmpty<ServerConfig>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let opt: Option<Vec<ServerEntry>> = Option::deserialize(deserializer)?;
-    match opt {
-        None => Ok(None),
-        Some(values) => {
-            let servers = values
-                .into_iter()
-                .map(|entry| entry.into_server_config())
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(serde::de::Error::custom)?;
-
-            let nonempty = NonEmpty::from_vec(servers).ok_or_else(|| {
-                serde::de::Error::custom("destination servers list cannot be empty")
-            })?;
-            Ok(Some(nonempty))
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ServerEntry {
-    Simple(String),
-    Detailed(ServerConfig),
-}
-
-impl ServerEntry {
-    fn into_server_config(self) -> std::result::Result<ServerConfig, String> {
-        match self {
-            ServerEntry::Simple(s) => ServerConfig::parse(&s),
-            ServerEntry::Detailed(c) => Ok(c),
         }
     }
 }
