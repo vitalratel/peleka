@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::error::{Error, Result};
 use crate::types::{ImageRef, ServiceName};
 
-use super::{Config, CONFIG_FILENAME};
+use super::{CONFIG_FILENAME, Config};
 
 pub fn init_config(
     dir: &Path,

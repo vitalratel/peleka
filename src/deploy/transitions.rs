@@ -17,6 +17,33 @@ use super::state::{Completed, ContainerStarted, CutOver, HealthChecked, ImagePul
 /// Result type for transitions that may need rollback on failure.
 pub type TransitionResult<T, S> = Result<Deployment<T>, (Deployment<S>, DeployError)>;
 
+/// Result of a single health check poll.
+enum HealthPollResult {
+    /// Container is healthy.
+    Healthy,
+    /// Container reported unhealthy (check returned false).
+    Unhealthy,
+    /// Health check command failed to execute.
+    ExecFailed(String),
+    /// Health check timed out.
+    Timeout,
+}
+
+/// Run a single health check poll with timeout.
+async fn poll_health_once<R: ContainerOps>(
+    runtime: &R,
+    container_id: &ContainerId,
+    cmd: &[String],
+    timeout: Duration,
+) -> HealthPollResult {
+    match tokio::time::timeout(timeout, runtime.run_healthcheck(container_id, cmd)).await {
+        Ok(Ok(true)) => HealthPollResult::Healthy,
+        Ok(Ok(false)) => HealthPollResult::Unhealthy,
+        Ok(Err(e)) => HealthPollResult::ExecFailed(e.to_string()),
+        Err(_) => HealthPollResult::Timeout,
+    }
+}
+
 // =============================================================================
 // Internal Helpers
 // =============================================================================
@@ -310,72 +337,54 @@ impl Deployment<ContainerStarted> {
 
         // Build the healthcheck command: ["sh", "-c", cmd]
         let healthcheck_cmd = vec!["sh".to_string(), "-c".to_string(), healthcheck.cmd.clone()];
-
-        let start = std::time::Instant::now();
         let poll_interval = healthcheck.interval;
-        let mut retries_remaining = healthcheck.retries;
 
-        // Wait for start period before beginning health checks
+        // Helper to create the success state transition
+        let succeed = || Deployment {
+            config: self.config.clone(),
+            old_container: self.old_container.clone(),
+            state: HealthChecked(self.state.0.clone()),
+        };
+
+        // Phase 1: Start period - poll without counting failures.
+        // This allows early exit if healthy while tolerating startup failures.
         if healthcheck.start_period > Duration::ZERO {
-            tokio::time::sleep(healthcheck.start_period).await;
+            let deadline = std::time::Instant::now() + healthcheck.start_period;
+
+            while std::time::Instant::now() < deadline {
+                if let HealthPollResult::Healthy =
+                    poll_health_once(runtime, container_id, &healthcheck_cmd, healthcheck.timeout)
+                        .await
+                {
+                    return Ok(succeed());
+                }
+                tokio::time::sleep(poll_interval).await;
+            }
         }
 
+        // Phase 2: Main polling with retry counting.
+        let start = std::time::Instant::now();
+        let mut retries_remaining = healthcheck.retries;
+
         while start.elapsed() < timeout {
-            // Manually trigger the healthcheck with a timeout
-            let healthcheck_result = tokio::time::timeout(
+            let failure_reason = match poll_health_once(
+                runtime,
+                container_id,
+                &healthcheck_cmd,
                 healthcheck.timeout,
-                runtime.run_healthcheck(container_id, &healthcheck_cmd),
             )
-            .await;
+            .await
+            {
+                HealthPollResult::Healthy => return Ok(succeed()),
+                HealthPollResult::Unhealthy => "container reported unhealthy".to_string(),
+                HealthPollResult::ExecFailed(e) => format!("healthcheck exec failed: {}", e),
+                HealthPollResult::Timeout => "healthcheck command timed out".to_string(),
+            };
 
-            match healthcheck_result {
-                Ok(Ok(true)) => {
-                    // Healthy
-                    return Ok(Deployment {
-                        config: self.config,
-                        old_container: self.old_container,
-                        state: HealthChecked(self.state.0),
-                    });
-                }
-                Ok(Ok(false)) => {
-                    // Unhealthy - decrement retries
-                    if retries_remaining == 0 {
-                        return Err((
-                            self,
-                            DeployError::health_check_failed(
-                                "container reported unhealthy after retries exhausted".to_string(),
-                            ),
-                        ));
-                    }
-                    retries_remaining -= 1;
-                }
-                Ok(Err(e)) => {
-                    // Error running healthcheck - treat as unhealthy
-                    if retries_remaining == 0 {
-                        return Err((
-                            self,
-                            DeployError::health_check_failed(format!(
-                                "healthcheck exec failed: {}",
-                                e
-                            )),
-                        ));
-                    }
-                    retries_remaining -= 1;
-                }
-                Err(_elapsed) => {
-                    // Timeout - treat as unhealthy
-                    if retries_remaining == 0 {
-                        return Err((
-                            self,
-                            DeployError::health_check_failed(
-                                "healthcheck timeout after retries exhausted".to_string(),
-                            ),
-                        ));
-                    }
-                    retries_remaining -= 1;
-                }
+            if retries_remaining == 0 {
+                return Err((self, DeployError::health_check_failed(failure_reason)));
             }
-
+            retries_remaining -= 1;
             tokio::time::sleep(poll_interval).await;
         }
 

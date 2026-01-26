@@ -49,7 +49,11 @@ impl LockInfo {
     }
 }
 
-/// A held deploy lock that releases on drop.
+/// A held deploy lock.
+///
+/// Prefer using [`with_lock`](Self::with_lock) which guarantees cleanup.
+/// If using `acquire`/`release` directly, you must ensure `release()` is called.
+/// Orphaned locks (from crashes) are auto-broken on subsequent deploys from the same machine.
 pub struct DeployLock<'a> {
     session: &'a Session,
     service: ServiceName,
@@ -198,6 +202,14 @@ impl<'a> DeployLock<'a> {
                         existing_lock.started_at
                     );
                     Ok(true)
+                } else if Self::is_dead_local_process(&existing_lock) {
+                    // Lock held by a process on this machine that no longer exists.
+                    // This happens when a previous deploy crashed or SSH died.
+                    tracing::warn!(
+                        "Auto-breaking orphaned lock from crashed deploy (pid {} no longer running)",
+                        existing_lock.pid
+                    );
+                    Ok(true)
                 } else {
                     // Lock is active and valid
                     Ok(false)
@@ -211,11 +223,68 @@ impl<'a> DeployLock<'a> {
         }
     }
 
+    /// Check if a lock is held by a process on this machine that no longer exists.
+    /// This detects orphaned locks from crashed deploys where SSH died before cleanup.
+    fn is_dead_local_process(lock_info: &LockInfo) -> bool {
+        let current_hostname = gethostname::gethostname().to_string_lossy().into_owned();
+
+        // Only check if the lock is from this machine
+        if lock_info.holder != current_hostname {
+            return false;
+        }
+
+        // Check if the process is still running
+        // On Unix, we can check /proc/<pid> or use kill(pid, 0)
+        #[cfg(unix)]
+        {
+            use std::path::Path;
+            let proc_path = format!("/proc/{}", lock_info.pid);
+            !Path::new(&proc_path).exists()
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix, we can't easily check, so don't auto-break
+            false
+        }
+    }
+
     /// Release the lock.
     pub async fn release(self) -> Result<(), DeployError> {
         let lock_path = LockInfo::lock_path(&self.service);
         let _ = self.session.exec(&format!("rm -f \"{}\"", lock_path)).await;
         Ok(())
+    }
+
+    /// Execute an async closure while holding the lock, guaranteeing cleanup.
+    ///
+    /// This is the preferred way to use `DeployLock`. The lock is acquired before
+    /// the closure runs and released after it completes, regardless of success,
+    /// failure, or panic.
+    ///
+    /// The error type `E` must be convertible from `DeployError` so that lock
+    /// acquisition errors can be propagated.
+    pub async fn with_lock<T, E, F>(
+        session: &'a Session,
+        service: &ServiceName,
+        force: bool,
+        f: F,
+    ) -> Result<T, E>
+    where
+        F: std::future::Future<Output = Result<T, E>>,
+        E: From<DeployError>,
+    {
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
+
+        let lock = Self::acquire(session, service, force).await?;
+        let result = AssertUnwindSafe(f).catch_unwind().await;
+        // Always release, regardless of result or panic
+        let _ = lock.release().await;
+        match result {
+            Ok(r) => r,
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
     }
 }
 

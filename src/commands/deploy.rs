@@ -103,20 +103,12 @@ async fn deploy_to_server(
 
     let session = Session::connect(server.ssh_session_config()).await?;
 
-    // Acquire deploy lock
+    // Run deployment with lock, ensuring cleanup on error or panic
     output.progress("  → Acquiring deploy lock...");
-    let lock = DeployLock::acquire(&session, &config.service, force).await?;
-
-    // Run deployment with lock, ensuring cleanup on error
-    let result = deploy_to_server_inner(config, server, &session, output).await;
-
-    // Release lock (non-fatal if it fails - deployment already succeeded or failed)
-    if let Err(e) = lock.release().await {
-        diag.warn(Warning::lock_release(format!(
-            "Failed to release deploy lock for {}: {}",
-            server.host, e
-        )));
-    }
+    let result = DeployLock::with_lock(&session, &config.service, force, async {
+        deploy_to_server_inner(config, server, &session, output).await
+    })
+    .await;
 
     // Disconnect SSH session (non-fatal if it fails)
     if let Err(e) = session.disconnect().await {
