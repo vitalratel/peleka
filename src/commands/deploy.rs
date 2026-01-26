@@ -4,7 +4,8 @@
 use super::runtime_connection::connect_to_runtime;
 use peleka::config::{Config, ServerConfig};
 use peleka::deploy::{
-    DeployError, DeployLock, Deployment, Initialized, cleanup_orphans, detect_orphans,
+    ContainerErrorExt, DeployError, DeployLock, DeployStrategy, Deployment, Initialized,
+    cleanup_orphans, detect_orphans,
 };
 use peleka::diagnostics::{Diagnostics, Warning};
 use peleka::error::{Error, Result};
@@ -130,6 +131,15 @@ async fn deploy_to_server_inner(
 ) -> Result<()> {
     let runtime = connect_to_runtime(session, server, output).await?;
 
+    // Determine deployment strategy
+    let (strategy, reason) = DeployStrategy::for_config(config);
+    if let Some(reason) = reason {
+        output.warning(&format!(
+            "Using recreate strategy (brief downtime): {}",
+            reason
+        ));
+    }
+
     // Find existing container for this service
     let old_container = find_existing_container(&runtime, &config.service).await?;
 
@@ -139,15 +149,39 @@ async fn deploy_to_server_inner(
         output.progress("  → No existing container (first deploy)");
     }
 
-    // Create deployment
-    let deployment: Deployment<Initialized> = if let Some(old_id) = old_container {
-        Deployment::new_update(config.clone(), old_id)
-    } else {
-        Deployment::new(config.clone())
-    };
+    // Handle strategy-specific pre-deployment and create deployment state machine.
+    // Using a single match to properly transfer ownership without cloning.
+    let (deployment, old_to_remove): (Deployment<Initialized>, Option<_>) =
+        match (strategy, old_container) {
+            (DeployStrategy::Recreate, Some(old_id)) => {
+                output.progress("  → Stopping old container (recreate strategy)...");
+                let stop_timeout = config.stop_timeout();
+                runtime
+                    .stop_container(&old_id, stop_timeout)
+                    .await
+                    .context_container_stop()?;
+                // Don't track old container in deployment - it's already stopped
+                // Keep ownership for removal after successful deploy
+                (Deployment::new(config.clone()), Some(old_id))
+            }
+            (DeployStrategy::BlueGreen, Some(old_id)) => {
+                // Give ownership to deployment for blue-green cutover
+                (Deployment::new_update(config.clone(), old_id), None)
+            }
+            (_, None) => (Deployment::new(config.clone()), None),
+        };
 
     // Run deployment state machine
     run_deployment(deployment, &runtime, config, output).await?;
+
+    // For recreate strategy, remove the stopped old container after successful deploy
+    if let Some(old_id) = old_to_remove {
+        output.progress("  → Removing old container...");
+        if let Err(e) = runtime.remove_container(&old_id, true).await {
+            // Non-fatal: log and continue
+            tracing::warn!("Failed to remove old container: {}", e);
+        }
+    }
 
     Ok(())
 }

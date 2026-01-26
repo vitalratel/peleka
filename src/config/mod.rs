@@ -273,6 +273,17 @@ impl Config {
             .unwrap_or_else(|| Duration::from_secs(30))
     }
 
+    /// Check if any port mappings bind to a host port.
+    /// Host port bindings (e.g. "80:8080") prevent blue-green deployment
+    /// because only one container can bind to a host port at a time.
+    pub fn has_host_port_bindings(&self) -> bool {
+        self.ports.iter().any(|p| {
+            // Parse port spec: "8080" (container only) vs "80:8080" (host:container)
+            let port_part = p.split('/').next().unwrap_or(p);
+            port_part.contains(':')
+        })
+    }
+
     pub fn template() -> Self {
         Config {
             service: ServiceName::new("my-app").unwrap(),
@@ -301,5 +312,52 @@ impl Config {
             logging: None,
             destinations: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn has_host_port_bindings_detects_host_ports() {
+        let mut config = Config::template();
+
+        // No ports - no host bindings
+        config.ports = vec![];
+        assert!(!config.has_host_port_bindings());
+
+        // Container-only port - no host binding
+        config.ports = vec!["8080".to_string()];
+        assert!(!config.has_host_port_bindings());
+
+        // Multiple container-only ports
+        config.ports = vec!["8080".to_string(), "9090".to_string()];
+        assert!(!config.has_host_port_bindings());
+
+        // Host:container binding
+        config.ports = vec!["80:8080".to_string()];
+        assert!(config.has_host_port_bindings());
+
+        // Mixed - one host binding is enough
+        config.ports = vec!["8080".to_string(), "80:80".to_string()];
+        assert!(config.has_host_port_bindings());
+    }
+
+    #[test]
+    fn has_host_port_bindings_handles_protocol_suffix() {
+        let mut config = Config::template();
+
+        // Container port with protocol
+        config.ports = vec!["8080/tcp".to_string()];
+        assert!(!config.has_host_port_bindings());
+
+        // Host binding with protocol
+        config.ports = vec!["80:8080/tcp".to_string()];
+        assert!(config.has_host_port_bindings());
+
+        // UDP port
+        config.ports = vec!["53:53/udp".to_string()];
+        assert!(config.has_host_port_bindings());
     }
 }
