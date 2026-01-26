@@ -18,6 +18,10 @@ fn create_hook(dir: &TempDir, name: &str, script: &str) {
     let mut perms = fs::metadata(&hook_path).unwrap().permissions();
     perms.set_mode(0o755);
     fs::set_permissions(&hook_path, perms).unwrap();
+
+    // Sync to ensure permissions are visible before execution (fixes parallel test flakiness)
+    let file = fs::File::open(&hook_path).unwrap();
+    file.sync_all().unwrap();
 }
 
 fn test_context() -> HookContext {
