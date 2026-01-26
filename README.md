@@ -128,6 +128,11 @@ network:
 
 restart: unless-stopped
 
+# Deployment strategy (optional, auto-detected by default)
+# - blue-green: zero-downtime (default)
+# - recreate: stop old first, brief downtime (for stateful apps)
+strategy: blue-green
+
 stop:
   timeout: 30s
 

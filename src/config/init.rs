@@ -48,6 +48,11 @@ servers:
     # SSH host key verification (default: false for security)
     # Set to true to enable Trust-On-First-Use, or pre-populate ~/.ssh/known_hosts
     # trust_first_connection: true
+
+# Deployment strategy (optional, auto-detected by default)
+# - blue-green: zero-downtime (default for stateless apps)
+# - recreate: stop old first, brief downtime (for stateful apps like Gitea, Prometheus)
+# strategy: recreate
 "#,
         config.service,
         config.image,

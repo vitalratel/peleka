@@ -81,6 +81,10 @@ pub struct Config {
     #[serde(default)]
     pub logging: Option<LoggingConfig>,
 
+    /// Deployment strategy. If not specified, auto-detected based on config.
+    #[serde(default)]
+    pub strategy: Option<StrategyConfig>,
+
     #[serde(default)]
     pub destinations: HashMap<String, Destination>,
 }
@@ -148,6 +152,16 @@ pub struct LoggingConfig {
 
 fn default_log_driver() -> String {
     "json-file".to_string()
+}
+
+/// Deployment strategy specified in configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum StrategyConfig {
+    /// Blue-green: zero-downtime deployment (default for stateless apps).
+    BlueGreen,
+    /// Recreate: stop old first, brief downtime (for stateful single-instance apps).
+    Recreate,
 }
 
 impl Config {
@@ -310,6 +324,7 @@ impl Config {
             stop: None,
             cleanup: None,
             logging: None,
+            strategy: None,
             destinations: HashMap::new(),
         }
     }

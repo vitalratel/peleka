@@ -490,3 +490,45 @@ servers:
         assert!(config.servers[0].socket.is_none());
     }
 }
+
+mod strategy_config {
+    use super::*;
+
+    #[test]
+    fn parse_recreate_strategy() {
+        let yaml = r#"
+service: gitea
+image: gitea/gitea
+servers:
+  - host: example.com
+strategy: recreate
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.strategy, Some(StrategyConfig::Recreate));
+    }
+
+    #[test]
+    fn parse_blue_green_strategy() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+strategy: blue-green
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.strategy, Some(StrategyConfig::BlueGreen));
+    }
+
+    #[test]
+    fn default_strategy_is_none() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert!(config.strategy.is_none());
+    }
+}
