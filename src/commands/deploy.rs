@@ -150,48 +150,42 @@ async fn deploy_to_server_inner(
     }
 
     // Handle strategy-specific pre-deployment and create deployment state machine.
-    // Using a single match to properly transfer ownership without cloning.
-    let (deployment, old_to_remove): (Deployment<Initialized>, Option<_>) =
-        match (strategy, old_container) {
-            (DeployStrategy::Recreate, Some(old_id)) => {
-                output.progress("  → Stopping old container (recreate strategy)...");
-                let stop_timeout = config.stop_timeout();
-                runtime
-                    .stop_container(&old_id, stop_timeout)
-                    .await
-                    .context_container_stop()?;
-                // Don't track old container in deployment - it's already stopped
-                // Keep ownership for removal after successful deploy
-                (Deployment::new(config.clone()), Some(old_id))
-            }
-            (DeployStrategy::BlueGreen, Some(old_id)) => {
-                // Give ownership to deployment for blue-green cutover
-                (Deployment::new_update(config.clone(), old_id), None)
-            }
-            (_, None) => (Deployment::new(config.clone()), None),
-        };
+    let deployment: Deployment<Initialized> = match (strategy, old_container) {
+        (DeployStrategy::Recreate, Some(old_id)) => {
+            output.progress("  → Stopping old container (recreate strategy)...");
+            let stop_timeout = config.stop_timeout();
+            runtime
+                .stop_container(&old_id, stop_timeout)
+                .await
+                .context_container_stop()?;
+            // Remove old container so new one can use the same name
+            output.progress("  → Removing old container...");
+            runtime
+                .remove_container(&old_id, true)
+                .await
+                .context_container_remove()?;
+            Deployment::new(config.clone())
+        }
+        (DeployStrategy::BlueGreen, Some(old_id)) => {
+            // Give ownership to deployment for blue-green cutover
+            Deployment::new_update(config.clone(), old_id)
+        }
+        (_, None) => Deployment::new(config.clone()),
+    };
 
     // Run deployment state machine
     run_deployment(deployment, &runtime, config, output).await?;
 
-    // For recreate strategy, remove the stopped old container after successful deploy
-    if let Some(old_id) = old_to_remove {
-        output.progress("  → Removing old container...");
-        if let Err(e) = runtime.remove_container(&old_id, true).await {
-            // Non-fatal: log and continue
-            tracing::warn!("Failed to remove old container: {}", e);
-        }
-    }
-
     Ok(())
 }
 
-/// Find existing container for a service.
+/// Find existing container for a service (running or stopped).
 pub async fn find_existing_container(
     runtime: &BollardRuntime,
     service: &peleka::types::ServiceName,
 ) -> Result<Option<peleka::types::ContainerId>> {
-    let filters = ContainerFilters::for_service(service, false);
+    // Include stopped containers - recreate strategy needs to remove them
+    let filters = ContainerFilters::for_service(service, true);
 
     let containers = runtime
         .list_containers(&filters)
