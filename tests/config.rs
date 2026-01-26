@@ -491,6 +491,49 @@ servers:
     }
 }
 
+mod pull_policy_config {
+    use super::*;
+    use peleka::config::PullPolicy;
+
+    #[test]
+    fn parse_always_policy() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+pull_policy: always
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::Always);
+    }
+
+    #[test]
+    fn parse_never_policy() {
+        let yaml = r#"
+service: myapp
+image: myapp:local
+servers:
+  - host: example.com
+pull_policy: never
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::Never);
+    }
+
+    #[test]
+    fn default_policy_is_always() {
+        let yaml = r#"
+service: myapp
+image: nginx
+servers:
+  - host: example.com
+"#;
+        let config = Config::from_yaml(yaml).unwrap();
+        assert_eq!(config.pull_policy, PullPolicy::Always);
+    }
+}
+
 mod strategy_config {
     use super::*;
 

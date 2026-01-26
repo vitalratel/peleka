@@ -64,6 +64,9 @@ pub struct Config {
     pub image_pull_timeout: Option<Duration>,
 
     #[serde(default)]
+    pub pull_policy: PullPolicy,
+
+    #[serde(default)]
     pub resources: Option<ResourcesConfig>,
 
     #[serde(default)]
@@ -162,6 +165,17 @@ pub enum StrategyConfig {
     BlueGreen,
     /// Recreate: stop old first, brief downtime (for stateful single-instance apps).
     Recreate,
+}
+
+/// Image pull policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PullPolicy {
+    /// Always pull the image from registry (default).
+    #[default]
+    Always,
+    /// Never pull - use local image only.
+    Never,
 }
 
 impl Config {
@@ -318,6 +332,7 @@ impl Config {
             healthcheck: None,
             health_timeout: default_health_timeout(),
             image_pull_timeout: None,
+            pull_policy: PullPolicy::default(),
             resources: None,
             network: None,
             restart: RestartPolicy::default(),

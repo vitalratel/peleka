@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Programmatic exit codes for CI/CD integration
 - Explicit `strategy` config option (`blue-green` for stateless, `recreate` for stateful apps)
 - Auto-detection of recreate strategy when host port bindings present
+- Image `pull_policy` config option (`always` or `never`) for local development
 - Panic-safe deploy lock release via `with_lock` callback pattern
 
 ## [0.1.0] - 2026-01-26

@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use crate::config::{Config, resolve_env_map};
+use crate::config::{Config, PullPolicy, resolve_env_map};
 use crate::runtime::{
     ContainerConfig, ContainerOps, ImageOps, NetworkConfig as RuntimeNetworkConfig, NetworkOps,
     RegistryAuth, RestartPolicyConfig, VolumeMount,
@@ -138,6 +138,10 @@ impl Deployment<Initialized> {
 
     /// Pull the container image from the registry.
     ///
+    /// Respects `pull_policy` configuration:
+    /// - `always`: Always pull from registry (default)
+    /// - `never`: Skip pulling, use local image only
+    ///
     /// # Errors
     ///
     /// Returns `DeployError::ImagePullFailed` if the image cannot be pulled,
@@ -148,6 +152,15 @@ impl Deployment<Initialized> {
         runtime: &R,
         auth: Option<&RegistryAuth>,
     ) -> Result<Deployment<ImagePulled>, DeployError> {
+        // Skip pull if policy is Never (for local images)
+        if self.config.pull_policy == PullPolicy::Never {
+            return Ok(Deployment {
+                config: self.config,
+                old_container: self.old_container,
+                state: ImagePulled,
+            });
+        }
+
         let pull_future = runtime.pull_image(&self.config.image, auth);
 
         match self.config.image_pull_timeout {

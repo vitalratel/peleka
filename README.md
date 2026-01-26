@@ -117,6 +117,11 @@ healthcheck:
 health_timeout: 2m
 image_pull_timeout: 5m
 
+# Image pull policy (optional, default: always)
+# - always: pull from registry before each deploy
+# - never: use local image only (for local development)
+pull_policy: always
+
 resources:
   memory: 512m
   cpus: "1.0"
