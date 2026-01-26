@@ -20,8 +20,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 humantime-serde = "1"
 nonempty = { version = "0.12", features = ["serialize"] }
-russh = { version = "0.56", features = ["aws-lc-rs"] }
-russh-keys = "0.49"
+russh = { git = "https://github.com/Eugeny/russh", tag = "v0.57.0", features = ["aws-lc-rs"] }
 futures = "0.3"
 parking_lot = "0.12"
 bollard = { version = "0.20.0", features = ["time"] }
