@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Zero-downtime container deployment tool for Docker and Podman"
 license = "MIT"
+repository = "https://github.com/vitalratel/peleka"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -20,7 +21,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 async-trait = "0.1"
 humantime-serde = "1"
 nonempty = { version = "0.12", features = ["serialize"] }
-russh = { git = "https://github.com/Eugeny/russh", tag = "v0.57.0", features = ["aws-lc-rs"] }
+russh = { version = "0.57.0", features = ["aws-lc-rs"] }
 futures = "0.3"
 parking_lot = "0.12"
 bollard = { version = "0.20.0", features = ["time"] }
