@@ -1,7 +1,7 @@
 # ABOUTME: Minimal SSH server for testing lock and other non-container operations.
-# ABOUTME: Uses alpine from local Gitea registry to avoid Docker Hub rate limits.
+# ABOUTME: Uses alpine base image for SSH server setup.
 
-FROM localhost:3000/vitalratel/alpine:3.19
+FROM alpine:3.19
 
 RUN apk add --no-cache openssh-server && \
     ssh-keygen -A && \
