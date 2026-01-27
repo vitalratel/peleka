@@ -1,8 +1,8 @@
 [package]
 name = "peleka"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
-description = "Zero-downtime container deployment tool for Docker and Podman"
+description = "Container deployment tool for Docker and Podman"
 license = "MIT"
 repository = "https://github.com/vitalratel/peleka"
 
@@ -43,3 +43,8 @@ ctor = "0.6"
 tar = "0.4"
 http-body-util = "0.1"
 bytes = "1"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1
