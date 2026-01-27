@@ -642,26 +642,26 @@ impl ContainerOps for BollardRuntime {
         });
 
         // Build networking config with aliases
-        let networking_config = if config.network.is_some() && !config.network_aliases.is_empty() {
-            let network_name = config.network.as_ref().unwrap().clone();
-            let aliases: Vec<String> = config
-                .network_aliases
-                .iter()
-                .map(|a| a.to_string())
-                .collect();
-            let mut endpoints: HashMap<String, EndpointSettings> = HashMap::new();
-            endpoints.insert(
-                network_name,
-                EndpointSettings {
-                    aliases: Some(aliases),
-                    ..Default::default()
-                },
-            );
-            Some(bollard::models::NetworkingConfig {
-                endpoints_config: Some(endpoints),
-            })
-        } else {
-            None
+        let networking_config = match (&config.network, config.network_aliases.is_empty()) {
+            (Some(network_name), false) => {
+                let aliases: Vec<String> = config
+                    .network_aliases
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect();
+                let mut endpoints: HashMap<String, EndpointSettings> = HashMap::new();
+                endpoints.insert(
+                    network_name.clone(),
+                    EndpointSettings {
+                        aliases: Some(aliases),
+                        ..Default::default()
+                    },
+                );
+                Some(bollard::models::NetworkingConfig {
+                    endpoints_config: Some(endpoints),
+                })
+            }
+            _ => None,
         };
 
         // Build container config
