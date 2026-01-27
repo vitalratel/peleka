@@ -1,16 +1,16 @@
 # peleka
 
-> Zero-downtime container deployment for Docker and Podman
+> Container deployment for Docker and Podman
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Overview
 
-Peleka deploys containers to remote servers with zero downtime using blue-green deployment. It connects via SSH, manages Docker or Podman containers, and handles health checks, rollbacks, and graceful shutdowns.
+Peleka deploys containers to remote servers using blue-green or recreate strategies. It connects via SSH, manages Docker or Podman containers, and handles health checks, rollbacks, and graceful shutdowns.
 
 ## Features
 
-- **Zero-downtime deployments** - Blue-green deployment with health check verification
+- **Blue-green deployments** - Zero-downtime with health check verification
 - **Docker & Podman support** - Works with both container runtimes
 - **SSH-native** - Connects directly via SSH, no agents to install
 - **Rollback support** - Instant rollback to previous deployment

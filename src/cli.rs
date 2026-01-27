@@ -5,7 +5,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "peleka")]
-#[command(about = "Zero-downtime container deployment for Docker and Podman")]
+#[command(about = "Container deployment for Docker and Podman")]
 #[command(version)]
 pub struct Cli {
     /// Enable verbose output for debugging
