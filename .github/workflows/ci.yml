@@ -144,6 +144,14 @@ jobs:
       - name: Run Docker integration tests
         run: just test-docker
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-test-results
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+
   test-integration-podman:
     name: Integration Tests (Podman)
     runs-on: ubuntu-latest
@@ -184,6 +192,14 @@ jobs:
 
       - name: Run Podman integration tests
         run: just test-podman
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: podman-test-results
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
 
   all-checks:
     name: All Checks Passed

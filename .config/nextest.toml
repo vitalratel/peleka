@@ -2,15 +2,20 @@
 # ABOUTME: Defines test profiles and group-based filtering for CI.
 
 [profile.default]
-# Run tests with some parallelism but not unlimited
 test-threads = "num-cpus"
 
 [profile.ci]
-# CI profile with JUnit output for GitHub Actions
-retries = 0
 fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 2 }
 
-# Podman tests run serially to avoid container conflicts
+[profile.ci.junit]
+path = "junit.xml"
+
+# Podman tests run serially to share the container
 [[profile.default.overrides]]
+filter = 'test(::podman::)'
+threads-required = 'num-cpus'
+
+[[profile.ci.overrides]]
 filter = 'test(::podman::)'
 threads-required = 'num-cpus'

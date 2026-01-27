@@ -11,11 +11,11 @@ test:
 
 # Run only Podman tests (requires Podman runtime)
 test-podman:
-    cargo nextest run -E 'test(::podman::)'
+    cargo nextest run --profile ci -E 'test(::podman::)'
 
 # Run non-Podman tests (Docker + unit tests)
 test-docker:
-    cargo nextest run -E 'not test(::podman::)'
+    cargo nextest run --profile ci -E 'not test(::podman::)'
 
 # Run unit tests only (no integration tests)
 test-unit:
