@@ -1,6 +1,6 @@
 [package]
 name = "peleka"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Container deployment tool for Docker and Podman"
 license = "MIT"
@@ -43,6 +43,7 @@ ctor = "0.6"
 tar = "0.4"
 http-body-util = "0.1"
 bytes = "1"
+test-group = "1"
 
 [profile.release]
 lto = true

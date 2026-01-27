@@ -7,6 +7,7 @@ use peleka::runtime::{RuntimeInfoTrait, RuntimeType, detect_runtime};
 use peleka::ssh::Session;
 
 /// Test: Detects Podman on server with Podman installed.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn detects_podman() {
     let config = support::podman_container::shared_podman_container()
@@ -39,6 +40,7 @@ async fn detects_podman() {
 }
 
 /// Test: Get runtime info via SSH tunnel.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn runtime_info() {
     let config = support::podman_container::shared_podman_container()
@@ -68,6 +70,7 @@ async fn runtime_info() {
 }
 
 /// Test: Ping Podman daemon via SSH tunnel.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn runtime_ping() {
     let config = support::podman_container::shared_podman_container()

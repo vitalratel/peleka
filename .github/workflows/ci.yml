@@ -1,5 +1,5 @@
 # ABOUTME: Main CI workflow that runs on every push and PR
-# ABOUTME: Runs lint, security, docs, and tests with Docker
+# ABOUTME: Runs lint, security, docs, and tests with Docker and Podman
 
 name: CI
 
@@ -32,24 +32,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check formatting
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: Check Cargo.lock is up to date
-        run: cargo update --workspace --locked
+      - name: Run lint checks
+        run: just ci-lint
 
   security:
     name: Security & Licenses
@@ -57,18 +54,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: extractions/setup-just@v3
 
       - name: Install cargo-deny
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
 
-      - name: Check dependencies
-        run: cargo deny check
+      - name: Run security checks
+        run: just security
 
   docs:
     name: Documentation
@@ -76,16 +76,19 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Check documentation
-        run: cargo doc --no-deps
+      - name: Build documentation
+        run: just docs-build
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -96,50 +99,96 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run unit tests
-        run: cargo test --lib --verbose
-
-      - name: Run doc tests
-        run: cargo test --doc
-
-      - name: Build release binary
-        run: cargo build --release
+      - name: Run unit tests, doc tests, and build
+        run: just ci-test
 
       - name: Verify CLI works
         run: |
           ./target/release/peleka --version
           ./target/release/peleka --help
 
-  test-integration:
-    name: Integration Tests
+  test-integration-docker:
+    name: Integration Tests (Docker)
     runs-on: ubuntu-latest
     needs: lint
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Run integration tests
-        run: cargo test --test '*' --verbose
+      - name: Run Docker integration tests
+        run: just test-docker
+
+  test-integration-podman:
+    name: Integration Tests (Podman)
+    runs-on: ubuntu-latest
+    needs: lint
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install just
+        uses: extractions/setup-just@v3
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Podman
+        run: |
+          # Podman is pre-installed on ubuntu-latest
+          podman --version
+
+          # Enable lingering for rootless Podman
+          sudo loginctl enable-linger $(whoami)
+
+          # Start the rootless Podman socket
+          systemctl --user start podman.socket
+
+          # Verify socket exists
+          sleep 2
+          ls -la /run/user/$(id -u)/podman/podman.sock
+
+      - name: Run Podman integration tests
+        run: just test-podman
 
   all-checks:
     name: All Checks Passed
     runs-on: ubuntu-latest
-    needs: [lint, security, docs, test, test-integration]
+    needs: [lint, security, docs, test, test-integration-docker, test-integration-podman]
     if: always()
 
     steps:
@@ -161,8 +210,12 @@ jobs:
             echo "Tests failed"
             exit 1
           fi
-          if [ "${{ needs.test-integration.result }}" != "success" ]; then
-            echo "Integration tests failed"
+          if [ "${{ needs.test-integration-docker.result }}" != "success" ]; then
+            echo "Docker integration tests failed"
+            exit 1
+          fi
+          if [ "${{ needs.test-integration-podman.result }}" != "success" ]; then
+            echo "Podman integration tests failed"
             exit 1
           fi
           echo "All checks passed"

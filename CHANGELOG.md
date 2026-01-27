@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-01-27
+
+### Added
+- `justfile` for standardized task running (`just test`, `just lint`, etc.)
+- `cargo-nextest` for faster, more robust test execution
+- `test-group` for categorizing tests by runtime requirement
+- `.config/nextest.toml` configuration
+
+### Changed
+- CI now uses `just` commands for consistency with local development
+- CI split into Docker and Podman integration test jobs
+- Tests requiring Podman tagged with `#[test_group::group(podman)]`
+- Updated `actions/checkout` to v6
+- Forwarding tests converted from Podman to Docker
+
 ## [0.1.1] - 2026-01-27
 
 ### Changed

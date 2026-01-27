@@ -10,6 +10,7 @@ use peleka::ssh::Session;
 use std::time::Duration;
 
 /// Test: Health check passes when command succeeds.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn health_check_passes() {
     let ssh_config = support::podman_session_config().await;
@@ -60,6 +61,7 @@ async fn health_check_passes() {
 }
 
 /// Test: Health check fails and rollback cleans up container.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn health_check_fails_and_rollback() {
     let ssh_config = support::podman_session_config().await;

@@ -7,23 +7,25 @@ use peleka::ssh::Session;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixStream;
 
-/// Test: Forward local socket to remote Podman socket and ping API.
+/// Docker socket path inside the Docker-in-Docker container.
+const DOCKER_SOCKET: &str = "/var/run/docker.sock";
+
+/// Test: Forward local socket to remote Docker socket and ping API.
 /// Expected: Can send HTTP request through forwarded socket.
 #[tokio::test]
-async fn forward_to_podman_socket() {
+async fn forward_to_docker_socket() {
     support::init_tracing();
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    // Detect the remote Podman socket path (rootful or rootless)
-    let remote_socket = support::detect_podman_socket(&session).await;
+    let remote_socket = DOCKER_SOCKET;
 
     // Start socket forwarding - returns local socket path
     let local_socket_path = session
-        .forward_socket(&remote_socket)
+        .forward_socket(remote_socket)
         .await
         .expect("forwarding should succeed");
 
@@ -47,7 +49,7 @@ async fn forward_to_podman_socket() {
         .expect("should read response");
     let response_str = String::from_utf8_lossy(&response[..n]);
 
-    // Podman /_ping returns "OK" with 200 status
+    // Docker /_ping returns "OK" with 200 status
     assert!(
         response_str.contains("200") || response_str.contains("OK"),
         "expected successful response, got: {}",
@@ -64,16 +66,16 @@ async fn forward_to_podman_socket() {
 /// Expected: Local socket is removed after session ends.
 #[tokio::test]
 async fn forward_socket_cleanup_on_disconnect() {
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let remote_socket = support::detect_podman_socket(&session).await;
+    let remote_socket = DOCKER_SOCKET;
 
     let local_socket_path = session
-        .forward_socket(&remote_socket)
+        .forward_socket(remote_socket)
         .await
         .expect("forwarding should succeed");
 
@@ -103,16 +105,16 @@ async fn forward_socket_cleanup_on_disconnect() {
 /// Expected: Can make multiple sequential requests.
 #[tokio::test]
 async fn forward_multiple_connections() {
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let remote_socket = support::detect_podman_socket(&session).await;
+    let remote_socket = DOCKER_SOCKET;
 
     let local_socket_path = session
-        .forward_socket(&remote_socket)
+        .forward_socket(remote_socket)
         .await
         .expect("forwarding should succeed");
 

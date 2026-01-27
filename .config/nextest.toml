@@ -1,0 +1,16 @@
+# ABOUTME: Configuration for cargo-nextest test runner.
+# ABOUTME: Defines test profiles and group-based filtering for CI.
+
+[profile.default]
+# Run tests with some parallelism but not unlimited
+test-threads = "num-cpus"
+
+[profile.ci]
+# CI profile with JUnit output for GitHub Actions
+retries = 0
+fail-fast = false
+
+# Podman tests run serially to avoid container conflicts
+[[profile.default.overrides]]
+filter = 'test(::podman::)'
+threads-required = 'num-cpus'

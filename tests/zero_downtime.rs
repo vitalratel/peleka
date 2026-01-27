@@ -8,6 +8,7 @@ use peleka::runtime::{ContainerOps, NetworkOps, RuntimeType};
 use peleka::ssh::Session;
 
 /// Test: ensure_network creates network if it doesn't exist.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn ensure_network_creates_if_not_exists() {
     let ssh_config = support::podman_session_config().await;
@@ -80,6 +81,7 @@ async fn ensure_network_creates_if_not_exists() {
 }
 
 /// Test: First deployment creates blue container.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn first_deployment_creates_blue_container() {
     let ssh_config = support::podman_session_config().await;
@@ -141,6 +143,7 @@ async fn first_deployment_creates_blue_container() {
 }
 
 /// Test: Detect orphans finds containers not in known list.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn detect_orphans_finds_unknown_containers() {
     let ssh_config = support::podman_session_config().await;

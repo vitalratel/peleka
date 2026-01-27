@@ -40,6 +40,7 @@ async fn find_service_containers(
 }
 
 /// Test: Manual rollback swaps active and previous containers.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn manual_rollback_swaps_containers() {
     let ssh_config = support::podman_session_config().await;
@@ -162,6 +163,7 @@ async fn manual_rollback_swaps_containers() {
 }
 
 /// Test: Rollback fails if no previous container exists.
+#[test_group::group(podman)]
 #[tokio::test]
 async fn rollback_fails_without_previous() {
     let ssh_config = support::podman_session_config().await;
@@ -238,6 +240,7 @@ async fn rollback_fails_without_previous() {
 }
 
 /// Test: Double rollback swaps back (ping-pong).
+#[test_group::group(podman)]
 #[tokio::test]
 async fn double_rollback_swaps_back() {
     let ssh_config = support::podman_session_config().await;
