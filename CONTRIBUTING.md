@@ -63,7 +63,7 @@ src/
 
 ### Feature Requests
 - Open an issue to discuss before implementing
-- Consider how it fits with the zero-downtime deployment model
+- Consider how it fits with the deployment model (blue-green or recreate)
 
 ### Code Contributions
 
