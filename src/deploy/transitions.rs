@@ -455,13 +455,13 @@ impl Deployment<HealthChecked> {
 
         // Connect new container to network with the service alias.
         // The container may already be connected (created with network set),
-        // so ignore "already connected" errors.
+        // so ignore "already connected" or "already exists" errors.
         if let Err(e) = runtime
             .connect_to_network(new_container_id, network_id, &[alias])
             .await
         {
             let err_str = e.to_string().to_lowercase();
-            if !err_str.contains("already connected") {
+            if !err_str.contains("already connected") && !err_str.contains("already exists") {
                 return Err(DeployError::network_failed(e.to_string()));
             }
         }

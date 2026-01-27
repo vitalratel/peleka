@@ -98,15 +98,15 @@ async fn full_deployment_chain() {
     use peleka::deploy::Deployment;
     use peleka::runtime::{NetworkOps, RuntimeType};
 
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Docker)
         .await
-        .expect("should create Podman runtime");
+        .expect("should create Docker runtime");
 
     // Create deployment config with network
     let mut deploy_config = support::test_config("test-deploy");
@@ -159,13 +159,13 @@ async fn container_start_failure_cleans_up() {
     use peleka::deploy::Deployment;
     use peleka::runtime::RuntimeType;
 
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 
@@ -201,13 +201,13 @@ async fn rollback_from_container_started_removes_container() {
     use peleka::deploy::Deployment;
     use peleka::runtime::{ContainerFilters, ContainerOps, RuntimeType};
 
-    let config = support::podman_session_config().await;
+    let config = support::docker_session_config().await;
 
     let session = Session::connect(config)
         .await
         .expect("connection should succeed");
 
-    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Podman)
+    let runtime = peleka::runtime::connect_via_session(&session, RuntimeType::Docker)
         .await
         .expect("should create Docker runtime");
 

@@ -5,12 +5,14 @@ use std::sync::Once;
 
 // Each test binary only uses some of these modules, so allow dead_code.
 #[allow(dead_code)]
+pub mod docker_container;
+#[allow(dead_code)]
 pub mod podman_container;
 #[allow(dead_code)]
 pub mod ssh_container;
 
-/// Test image registry. Change this single constant to switch all tests.
-pub const TEST_IMAGE: &str = "host.containers.internal:3000/vitalratel/alpine:3.19";
+/// Test image for CI (public registry).
+pub const TEST_IMAGE: &str = "alpine:3.19";
 
 /// Create a test deployment config with sensible defaults.
 ///
@@ -88,6 +90,14 @@ pub fn test_key_path() -> String {
 #[allow(dead_code)]
 pub async fn podman_session_config() -> peleka::ssh::SessionConfig {
     podman_container::shared_podman_container()
+        .await
+        .session_config()
+}
+
+/// Get SSH config for the shared Docker test container.
+#[allow(dead_code)]
+pub async fn docker_session_config() -> peleka::ssh::SessionConfig {
+    docker_container::shared_docker_container()
         .await
         .session_config()
 }

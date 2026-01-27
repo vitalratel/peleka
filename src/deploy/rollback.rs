@@ -75,13 +75,15 @@ pub async fn manual_rollback<R: ContainerOps + NetworkOps>(
         .disconnect_from_network(&active.id, network_id)
         .await;
 
-    // Connect previous container to network with service alias
+    // Connect previous container to network with service alias.
+    // The container may already be connected, so ignore "already connected"
+    // or "already exists" errors (Docker uses different wording).
     if let Err(e) = runtime
         .connect_to_network(&previous.id, network_id, &[alias])
         .await
     {
         let err_str = e.to_string().to_lowercase();
-        if !err_str.contains("already connected") {
+        if !err_str.contains("already connected") && !err_str.contains("already exists") {
             return Err(DeployError::rollback_failed(format!(
                 "failed to connect previous container to network: {}",
                 e
