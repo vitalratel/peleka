@@ -85,7 +85,9 @@ async fn nonzero_exit_code() {
 /// Test: Connection to invalid host fails with connection error.
 #[tokio::test]
 async fn invalid_host_returns_connection_error() {
-    let config = SessionConfig::new("nonexistent.invalid.host.example", "testuser");
+    // Must provide a key path so we don't fail with AgentUnavailable in CI
+    let config = SessionConfig::new("nonexistent.invalid.host.example", "testuser")
+        .key_path(support::test_key_path());
 
     let result = Session::connect(config).await;
 

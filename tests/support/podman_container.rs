@@ -177,6 +177,9 @@ impl PodmanContainer {
         // Wait for SSH and Podman to be ready
         Self::wait_for_ready(port).await?;
 
+        // Print container logs for debugging CI failures
+        Self::print_container_logs(&docker, &container.id).await;
+
         Ok(Self {
             port,
             known_hosts_path,
@@ -261,6 +264,27 @@ impl PodmanContainer {
         let port = listener.local_addr()?.port();
         drop(listener);
         Ok(port)
+    }
+
+    async fn print_container_logs(docker: &Docker, container_id: &str) {
+        use futures::StreamExt;
+
+        let options = bollard::query_parameters::LogsOptions {
+            stdout: true,
+            stderr: true,
+            tail: "50".to_string(),
+            ..Default::default()
+        };
+
+        let mut logs = docker.logs(container_id, Some(options));
+        eprintln!("=== Container logs (last 50 lines) ===");
+        while let Some(result) = logs.next().await {
+            match result {
+                Ok(output) => eprint!("{}", output),
+                Err(e) => eprintln!("Error reading logs: {}", e),
+            }
+        }
+        eprintln!("=== End container logs ===");
     }
 
     async fn wait_for_ready(port: u16) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

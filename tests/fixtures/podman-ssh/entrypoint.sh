@@ -64,6 +64,6 @@ podman info > /dev/null 2>&1 && echo "Podman is working" || echo "Warning: Podma
 echo "Pre-pulling test image..."
 podman pull host.containers.internal:3000/vitalratel/alpine:3.19 2>&1 || echo "Warning: Failed to pre-pull test image"
 
-# Start SSH server in foreground
+# Start SSH server in foreground (with error logging)
 echo "Starting SSH server..."
 exec /usr/sbin/sshd -D -e

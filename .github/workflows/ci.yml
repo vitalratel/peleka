@@ -190,6 +190,9 @@ jobs:
           sleep 2
           ls -la /run/user/$(id -u)/podman/podman.sock
 
+          # Force rebuild of test image by removing cached version
+          podman rmi localhost/peleka-podman-ssh:test 2>/dev/null || true
+
       - name: Run Podman integration tests
         run: just test-podman
 
